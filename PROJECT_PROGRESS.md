@@ -3,105 +3,89 @@
 > Synchronisationsdatei zwischen mehreren PCs. Enthält jederzeit den aktuellen
 > Entwicklungsstand. Wird nach **jedem** Entwicklungsschritt aktualisiert.
 
-**Letzter Schritt:** Schritt 1 — Projektfundament
-**Datum:** 2026-07-02
+**Letzter Schritt:** Schritt 2 — GUI-Grundgerüst (PySide6)
+**Datum:** 2026-07-03
 **Version:** 0.1.0
-**TestStatus:** ✅ 13 Tests grün (`pytest`)
+**TestStatus:** ✅ 19 Tests grün (`pytest`)
 
 ---
 
 ## Aktueller Stand
 
-Das Fundament der Anwendung steht und ist eigenständig lauffähig/testbar:
-
 - ✅ Modulare Projektstruktur (`app/` mit allen geplanten Sub-Paketen).
-- ✅ Zentrale Konfiguration & Pfad-Auflösung (`app/config.py`), per Umgebungs-
-  variablen überschreibbar.
+- ✅ Zentrale Konfiguration & Pfad-Auflösung, per Umgebungsvariablen überschreibbar.
 - ✅ Zentrales Logging in Konsole **und** `logs/application.log` (rotierend).
-- ✅ SQLite-Datenbank wird beim Start automatisch erstellt.
-- ✅ Forward-only **Migrations-Framework** mit `schema_migrations`-Tracking.
-- ✅ Domänenmodell: `Collection`, `Card`, `PriceRecord` (Dataclasses) sowie
-  Enums `Variant`, `Condition`, `Language`, `PriceQuality`.
-- ✅ Bootstrap-Sequenz + CLI-Einstiegspunkt (`python -m app.main`).
-- ✅ Test-Suite (Datenbank + Modelle).
+- ✅ SQLite-DB mit automatischer Erstellung + forward-only Migrations-Framework.
+- ✅ Domänenmodell: `Collection`, `Card`, `PriceRecord` + Enums.
+- ✅ Lokales, git-ignoriertes Secrets-Handling (CardTrader-JWT).
+- ✅ **GUI-Grundgerüst (PySide6):** Hauptfenster mit Drei-Spalten-Layout,
+  Toolbar, Hell-/Dunkelmodus. Startet über `python -m app.main`.
+- ✅ Bootstrap + CLI-Einstiegspunkt (`--check` für Headless-Health-Check).
+- ✅ Test-Suite (Datenbank, Modelle, GUI-Smoke-Tests headless via `offscreen`).
 - ✅ Dokumentation: `README.md`, `CHANGELOG.md`, dieses Dokument.
 
 ---
 
-## Heute umgesetzt (Schritt 1)
+## Heute umgesetzt (Schritt 2 — GUI-Grundgerüst)
 
-- Projektgerüst inkl. `.venv` (Python 3.13.14), `.gitignore`, `pyproject.toml`,
-  `requirements.txt`, `requirements-dev.txt`.
-- `config.py`: App-Konstanten, Pfade (`DATA_DIR`, `LOGS_DIR`, `DB_PATH`, …),
-  `ensure_directories()`.
-- `logging_config.py`: `configure_logging()` / `get_logger()` mit rotierendem
-  Datei-Handler (UTF-8) und Konsolen-Handler.
-- `utils/time.py`: einheitliche UTC-ISO-Zeitstempel.
-- Domänenmodell in `models/` (siehe „Neue Klassen").
-- Datenbank-Layer in `database/`:
-  - `schema.py`: DDL als versionierte Migrationen (Version 1).
-  - `migrations.py`: atomarer, forward-only Migration-Runner.
-  - `connection.py`: `Database`-Klasse (Context-Manager, PRAGMAs).
-- `bootstrap.py` + `main.py`: Start-Sequenz und Statusausgabe.
-- Tests: `tests/test_database.py`, `tests/test_models.py`, `conftest.py`.
+- **Theme-System** (`app/ui/theme.py`): `Theme`-Enum (Hell/Dunkel), Farb-
+  paletten und komplettes Qt-Stylesheet (QSS) — zentral, keine Farbliterale in
+  den Widgets.
+- **Drei Panels** (`app/ui/widgets/`):
+  - `CollectionPanel` — Sammlungsliste (links) + „Neue Sammlung"-Button.
+  - `CardListPanel` — Kartentabelle (Mitte) mit Spalten Name/Set/Nr./Variante/
+    Sprache/Zustand/Menge/Preis.
+  - `CardDetailPanel` — Kartendetails (rechts): Foto-Platzhalter, Feldliste,
+    „Auf Cardmarket öffnen"-Button.
+  - Panels sind **reine Präsentations-Shells** und geben Signale ab; echte
+    Datenbindung folgt ab Schritt 3/5. (Platzhalterinhalte klar markiert.)
+- **Hauptfenster** (`app/ui/main_window.py`): Toolbar mit Suchfeld, Aktionen
+  Scanner / Cardmarket-Preise aktualisieren / Export sowie Theme-Toggle
+  (rechts); `QSplitter`-Layout; Statusleiste. Exponiert Signale
+  (`search_submitted`, `scan_requested`, `update_prices_requested`,
+  `export_requested`) — **keine Business-Logik im Fenster**; vorerst nur
+  Statusleisten-Feedback.
+- **App-Factory** (`app/ui/app.py`): `build_application()` (Fusion-Style),
+  `run_gui()`; headless testbar via `offscreen`.
+- **`main.py`**: startet nun die GUI; `--check` läuft headless (Bootstrap +
+  Statusbericht).
+- **Tests** (`tests/test_ui_smoke.py`): 6 GUI-Smoke-Tests (offscreen).
+- Visuell verifiziert (Hell + Dunkel gerendert; App live gestartet).
 
 ---
 
-## Dateien geändert / neu angelegt
+## Dateien geändert / neu angelegt (Schritt 2)
 
 **Neu:**
-- `.gitignore`, `pyproject.toml`, `requirements.txt`, `requirements-dev.txt`
-- `README.md`, `PROJECT_PROGRESS.md`, `CHANGELOG.md`
-- `app/__init__.py`, `app/config.py`, `app/logging_config.py`,
-  `app/bootstrap.py`, `app/main.py`
-- `app/models/{__init__,enums,collection,card,price}.py`
-- `app/database/{__init__,schema,migrations,connection}.py`
-- `app/utils/{__init__,time}.py`
-- `app/{ui,services,pricing,cardmarket,recognition,scanner,export}/__init__.py`
-  (Platzhalter-Pakete)
-- `tests/{__init__,conftest,test_database,test_models}.py`
-- **Nachtrag (Preis-Infrastruktur):** `app/secrets.py` (lokaler Secrets-Loader),
-  `config/secrets.example.json` (Vorlage), `config/secrets.json` (lokal,
-  git-ignoriert), `.gitignore` um Secrets erweitert.
+- `app/ui/theme.py`
+- `app/ui/app.py`
+- `app/ui/main_window.py`
+- `app/ui/widgets/{__init__,collection_panel,card_list_panel,card_detail_panel}.py`
+- `tests/test_ui_smoke.py`
+- `.gitattributes` (Zeilenenden-Normalisierung für Multi-PC-Sync)
+
+**Geändert:**
+- `app/main.py` (GUI-Start + `--check`)
 
 ---
 
-## Neue Klassen
+## Neue Klassen (Schritt 2)
 
 | Klasse / Enum | Modul | Zweck |
 |---------------|-------|-------|
-| `Variant` | `models.enums` | Kartenvariante (Normal, Holo, Reverse, 1st Edition, …) |
-| `Condition` | `models.enums` | Zustand mit Ordnung (`order`) + Code (Mint…Poor) |
-| `Language` | `models.enums` | Sprache mit Code (EN, DE, …) |
-| `PriceQuality` | `models.enums` | Preisqualität inkl. deutscher Labels |
-| `Collection` | `models.collection` | Sammlung (Dataclass) |
-| `Card` | `models.card` | Karteneintrag (Dataclass) inkl. `total_value` |
-| `PriceRecord` | `models.price` | Ein Punkt im Preisverlauf (Dataclass) |
-| `Migration` | `database.schema` | Versionierte Schemaänderung |
-| `Database` | `database.connection` | SQLite-Connection-Verwaltung |
-| `BootstrapError` | `bootstrap` | Fehler bei der Initialisierung |
+| `Theme` | `ui.theme` | Hell/Dunkel-Enum inkl. `toggled()` |
+| `Palette` | `ui.theme` | Farbpalette pro Theme |
+| `CollectionPanel` | `ui.widgets.collection_panel` | Sammlungs-Sidebar |
+| `CardListPanel` | `ui.widgets.card_list_panel` | Kartentabelle |
+| `CardDetailPanel` | `ui.widgets.card_detail_panel` | Kartendetails |
+| `MainWindow` | `ui.main_window` | Hauptfenster + Toolbar + Layout |
 
 ---
 
 ## Datenbankänderungen
 
-**Schema-Version:** 1 (Migration angewandt).
-
-**Neue Tabellen:**
-- `collections` (id, name*unique*, description, position, created_at, updated_at)
-- `cards` (id, collection_id→collections, name, set_name, set_code, card_number,
-  variant, language, condition, quantity, notes, photo_path, external_card_id,
-  cardmarket_url, current_price, price_currency, price_quality, price_rationale,
-  price_updated_at, created_at, updated_at)
-- `price_history` (id, card_id→cards, price, currency, price_quality, rationale,
-  source, recorded_at)
-- `settings` (key, value, updated_at)
-- `schema_migrations` (version, description, applied_at)
-
-**Indizes:** `idx_cards_collection`, `idx_cards_name`, `idx_cards_set`,
-`idx_price_history_card`.
-
-**Migrationen:** Migration 1 „Initial schema" angelegt und angewandt.
+Keine (Schema unverändert bei **Version 1**). GUI ist noch nicht an die DB
+gebunden — das erfolgt ab Schritt 3.
 
 ---
 
@@ -139,33 +123,36 @@ API wird **strikt lesend** verwendet — keine Kauf-/Verkaufs-Endpunkte.
 
 ## Offene Aufgaben (priorisiert)
 
-1. **Schritt 2 — GUI-Grundgerüst:** PySide6-Hauptfenster, 3-Spalten-Layout
-   (Sammlungen | Kartenliste | Kartendetails), obere Toolbar, Hell-/Dunkelmodus.
-2. **Schritt 3 — Sammlungen-CRUD:** Repository + Service + UI-Anbindung.
-3. **Schritt 4 — Kartenkatalog & intelligente Suche** (pokemontcg.io-Import).
-4. **Schritt 5 — Karten zu Sammlungen hinzufügen** (Variante/Sprache/Zustand/…).
-5. **Schritt 6 — Preis-Engine + Provider-Abstraktion + „Preise aktualisieren".**
-6. **Schritt 7 — Preisverlauf & Diagramme.**
-7. **Schritt 8 — Filter & Volltextsuche.**
-8. **Schritt 9 — Statistiken.**
-9. **Schritt 10 — Export (CSV/Excel/JSON/PDF).**
-10. **Schritt 11 — Webcam-Scanner (OCR/Bildvergleich).**
+1. **Schritt 3 — Sammlungen-CRUD:** Repository + Service + UI-Anbindung
+   (Sammlungen anlegen/umbenennen/löschen/sortieren; `CollectionPanel` an echte
+   Daten binden).
+2. **Schritt 4 — Kartenkatalog & intelligente Suche** (pokemontcg.io/CardTrader).
+3. **Schritt 5 — Karten zu Sammlungen hinzufügen** (Variante/Sprache/Zustand/…).
+4. **Schritt 6 — Preis-Engine + CardTrader-Provider + „Preise aktualisieren".**
+5. **Schritt 7 — Preisverlauf & Diagramme.**
+6. **Schritt 8 — Filter & Volltextsuche.**
+7. **Schritt 9 — Statistiken.**
+8. **Schritt 10 — Export (CSV/Excel/JSON/PDF).**
+9. **Schritt 11 — Webcam-Scanner (OCR/Bildvergleich).**
 
 ---
 
 ## Bekannte Bugs
 
-- Keine bekannten Bugs. (Windows-Konsole zeigt Sonderzeichen je nach Codepage
-  ggf. als `�` an; die Logdatei ist korrektes UTF-8 — rein kosmetisch.)
-- Hinweis CardTrader: `/blueprints/export?expansion_id=` liefert für viele Sets
-  „Data is not ready" (Cache-Endpunkt). Lösung: Live-Endpunkt
-  `/blueprints?expansion_id=` verwenden (bestätigt funktionierend).
+- Keine funktionalen Bugs.
+- Windows-Konsole zeigt Sonderzeichen je nach Codepage als `�`; Logdatei ist
+  korrektes UTF-8 (rein kosmetisch).
+- Offscreen-Rendering (nur für Test-Screenshots) zeigt Text als Kästchen, weil
+  keine System-Schrift geladen wird — auf echtem Bildschirm normal. Kein Bug.
+- CardTrader: `/blueprints/export?expansion_id=` liefert oft „Data is not
+  ready" → Live-Endpunkt `/blueprints?expansion_id=` verwenden.
 
 ---
 
 ## Nächster Entwicklungsschritt
 
-**Schritt 2 — GUI-Grundgerüst (PySide6).** Hauptfenster mit Drei-Spalten-Layout,
-Toolbar (Suche · Scanner · Preise aktualisieren · Export), umschaltbarer Hell-/
-Dunkelmodus, ohne Business-Logik in der GUI. Danach kurze Zusammenfassung und
-Warten auf Freigabe.
+**Schritt 3 — Sammlungen-CRUD.** Repository (`app/database/`), Service
+(`app/services/`) und Anbindung des `CollectionPanel` an echte Daten:
+Sammlungen anlegen, umbenennen, löschen, sortieren; Auswahl lädt die zugehörige
+Kartenliste (zunächst leer). Danach kurze Zusammenfassung und Warten auf
+Freigabe.

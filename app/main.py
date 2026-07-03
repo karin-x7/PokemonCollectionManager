@@ -1,11 +1,12 @@
 """Command-line entry point.
 
-Until the GUI lands in Step 2, running the application performs the full
-start-up sequence and prints a short status report. This makes the foundation
-runnable and verifiable on its own.
+Runs the start-up sequence and launches the graphical interface. Pass
+``--check`` to only run the bootstrap and print a status report (no GUI),
+which is handy for CI and quick health checks.
 
 Usage:
-    python -m app.main
+    python -m app.main            # launch the GUI
+    python -m app.main --check    # bootstrap only, print status, exit
 """
 
 from __future__ import annotations
@@ -16,12 +17,22 @@ from app import config
 from app.bootstrap import BootstrapError, bootstrap
 
 
-def main() -> int:
-    """Run the bootstrap sequence and report the result.
+def _print_status(database) -> None:
+    """Print a short bootstrap status report."""
+    schema_version = database.connection.execute(
+        "SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations"
+    ).fetchone()["v"]
+    print(f"{config.APP_NAME} v{config.APP_VERSION}")
+    print(f"  Database:       {database.path}")
+    print(f"  Schema version: {schema_version}")
+    print(f"  Log file:       {config.LOG_FILE}")
 
-    Returns:
-        Process exit code (0 on success, 1 on failure).
-    """
+
+def main(argv: list[str] | None = None) -> int:
+    """Bootstrap the application and either report status or launch the GUI."""
+    args = sys.argv[1:] if argv is None else argv
+    check_only = "--check" in args
+
     try:
         database = bootstrap()
     except BootstrapError as exc:
@@ -29,17 +40,15 @@ def main() -> int:
         return 1
 
     try:
-        version_row = database.connection.execute(
-            "SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations"
-        ).fetchone()
-        schema_version = version_row["v"]
+        if check_only:
+            _print_status(database)
+            print("  Status:         bootstrap OK (--check, no GUI).")
+            return 0
 
-        print(f"{config.APP_NAME} v{config.APP_VERSION}")
-        print(f"  Database:       {database.path}")
-        print(f"  Schema version: {schema_version}")
-        print(f"  Log file:       {config.LOG_FILE}")
-        print("  Status:         foundation ready (GUI arrives in Step 2).")
-        return 0
+        # Import here so headless/CLI use does not require Qt.
+        from app.ui.app import run_gui
+
+        return run_gui(database)
     finally:
         database.close()
 

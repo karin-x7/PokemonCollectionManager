@@ -6,14 +6,29 @@ Versionierung nach [SemVer](https://semver.org).
 
 ## [Unreleased]
 
+### Hinzugefügt — Schritt 2: GUI-Grundgerüst (PySide6)
+- Hauptfenster (`app/ui/main_window.py`) mit Drei-Spalten-Layout
+  (Sammlungen · Kartenliste · Kartendetails) über `QSplitter`.
+- Toolbar mit Suchfeld und Aktionen Scanner / Cardmarket-Preise aktualisieren /
+  Export sowie Theme-Umschalter; Statusleiste.
+- Umschaltbarer **Hell-/Dunkelmodus** über zentrales QSS-Theme
+  (`app/ui/theme.py`).
+- Präsentations-Panels (`app/ui/widgets/`) ohne Business-Logik; kommunizieren
+  über Qt-Signale.
+- App-Factory (`app/ui/app.py`); `main.py` startet nun die GUI, `--check`
+  bleibt headless.
+- 6 GUI-Smoke-Tests (headless via `offscreen`). Gesamt: 19 Tests grün.
+- `.gitattributes` zur Zeilenenden-Normalisierung (Multi-PC-Sync).
+
 ### Geändert
 - **Preisquelle finalisiert:** Primärquelle ist nun **CardTrader** (europäischer
   Marktplatz mit echten Einzelangeboten pro Zustand/Sprache/Preis) statt reiner
   Aggregatpreise. pokemontcg.io bleibt für Katalog/Suche/Bilder und als
   Preis-Fallback. Machbarkeit mit einem normalen CardTrader-Konto getestet und
   bestätigt (nur lesender Zugriff).
+- `main.py` startet die grafische Oberfläche (vorher nur Statusbericht).
 
-### Hinzugefügt
+### Hinzugefügt (Infrastruktur)
 - Lokales, git-ignoriertes Secrets-Handling: `app/secrets.py`,
   `config/secrets.example.json`, `config/secrets.json`. Tokens werden nie
   geloggt oder committet.
