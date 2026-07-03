@@ -3,10 +3,10 @@
 > Synchronisationsdatei zwischen mehreren PCs. Enthält jederzeit den aktuellen
 > Entwicklungsstand. Wird nach **jedem** Entwicklungsschritt aktualisiert.
 
-**Letzter Schritt:** Schritt 2 — GUI-Grundgerüst (PySide6)
+**Letzter Schritt:** Schritt 3 — Sammlungen-CRUD
 **Datum:** 2026-07-03
 **Version:** 0.1.0
-**TestStatus:** ✅ 19 Tests grün (`pytest`)
+**TestStatus:** ✅ 55 Tests grün (`pytest`)
 
 ---
 
@@ -20,9 +20,74 @@
 - ✅ Lokales, git-ignoriertes Secrets-Handling (CardTrader-JWT).
 - ✅ **GUI-Grundgerüst (PySide6):** Hauptfenster mit Drei-Spalten-Layout,
   Toolbar, Hell-/Dunkelmodus. Startet über `python -m app.main`.
+- ✅ **Sammlungen-CRUD (echt, persistent):** Anlegen, Umbenennen, Löschen
+  (mit Bestätigung, kaskadiert auf Karten), Umsortieren per Drag & Drop.
+  `CollectionPanel` ist an echte Datenbankdaten gebunden.
 - ✅ Bootstrap + CLI-Einstiegspunkt (`--check` für Headless-Health-Check).
-- ✅ Test-Suite (Datenbank, Modelle, GUI-Smoke-Tests headless via `offscreen`).
+- ✅ **Desktop-/Startmenü-Verknüpfung** zum Starten ohne Terminal
+  (`pythonw.exe -m app.main`, kein Konsolenfenster).
+- ✅ Test-Suite (Datenbank, Modelle, Repository, Service, GUI-Smoke- und
+  GUI-Wiring-Tests headless via `offscreen`).
 - ✅ Dokumentation: `README.md`, `CHANGELOG.md`, dieses Dokument.
+
+---
+
+## Heute umgesetzt (Schritt 3 — Sammlungen-CRUD)
+
+- **Repository** (`app/database/repositories/collection_repository.py`):
+  reine SQL-Zugriffsschicht (`list_all`, `get`, `create`, `rename`, `delete`,
+  `reorder`) — keine Validierung, nur Datenzugriff. Duplikate werden als
+  `sqlite3.IntegrityError` (UNIQUE-Constraint) durchgereicht.
+- **Service** (`app/services/collection_service.py`): Validierung (Name
+  trimmen, nicht leer, max. 100 Zeichen), übersetzt SQL-Fehler in typisierte,
+  deutschsprachige Exceptions (`app/services/exceptions.py`:
+  `ValidationError`, `DuplicateCollectionError`, `CollectionNotFoundError`).
+  Dies ist die **einzige** Schicht, die die GUI für Sammlungs-Operationen
+  aufrufen darf.
+- **`CollectionPanel`** überarbeitet: zeigt echte `Collection`-Objekte,
+  Kontextmenü (Umbenennen/Löschen), Doppelklick zum Umbenennen,
+  Löschbestätigung, Drag-&-Drop-Umsortierung. Bleibt eine reine
+  Präsentations-Shell — Dialoge sind Interaktions-, keine Business-Logik;
+  echte Validierung/Persistenz läuft ausschließlich über den Service.
+- **`CollectionController`** (`app/ui/controllers/collection_controller.py`):
+  einzige Klebeschicht zwischen Panel-Signalen und Service. Fängt
+  `ServiceError` ab und zeigt sie als Fehlermeldung im Panel; nach
+  erfolgreichem Erstellen wird die neue Sammlung automatisch ausgewählt.
+- **`MainWindow`** baut Repository → Service → Controller auf und verdrahtet
+  `collection_controller.selection_changed`; erzeugt bei Bedarf automatisch
+  eine In-Memory-Datenbank (Test-/Demo-Komfort), schließt sie beim Schließen
+  des Fensters, falls selbst erzeugt.
+- **Desktop-/Startmenü-Verknüpfung** (`pythonw.exe -m app.main`, kein
+  Konsolenfenster) für den Start ohne Terminal.
+- **Bugfix während der Testphase:** Ein Test emittierte das `rename_requested`-
+  bzw. `delete_requested`-Signal (`Signal(int, str)` / `Signal(int)`) mit
+  `None` als ID, weil neu erstellte Sammlungen bis dahin nicht automatisch
+  ausgewählt wurden. PySide6/Shiboken wirft dabei keinen normalen Python-
+  Fehler, sondern hängt den Prozess auf ("Cannot copy-convert NoneType to
+  C++"). Behoben durch echte UX-Verbesserung: `CollectionController._on_create`
+  wählt die neu erstellte Sammlung jetzt automatisch aus
+  (`CollectionPanel.select_collection`). In der echten Oberfläche konnte der
+  Fehler nie auftreten (Kontextmenü/Doppelklick liefern immer ein echtes
+  Element), betraf also nur die Testroutine — die Korrektur behebt aber
+  zugleich eine echte Lücke: neu angelegte Sammlungen waren vorher nicht
+  automatisch ausgewählt.
+
+---
+
+## Dateien geändert / neu angelegt (Schritt 3)
+
+**Neu:**
+- `app/database/repositories/{__init__,collection_repository}.py`
+- `app/services/{collection_service,exceptions}.py`
+- `app/ui/controllers/{__init__,collection_controller}.py`
+- `tests/{test_collection_repository,test_collection_service,test_collection_panel,test_collection_controller}.py`
+
+**Geändert:**
+- `app/ui/widgets/collection_panel.py` (echte Daten statt Platzhalter,
+  Dialoge, Kontextmenü, Drag & Drop, `select_collection`)
+- `app/ui/main_window.py` (Repository/Service/Controller-Verdrahtung,
+  In-Memory-DB-Fallback, `closeEvent`)
+- `app/services/__init__.py` (Re-Exports)
 
 ---
 
@@ -80,12 +145,21 @@
 | `CardDetailPanel` | `ui.widgets.card_detail_panel` | Kartendetails |
 | `MainWindow` | `ui.main_window` | Hauptfenster + Toolbar + Layout |
 
+## Neue Klassen (Schritt 3)
+
+| Klasse / Enum | Modul | Zweck |
+|---------------|-------|-------|
+| `CollectionRepository` | `database.repositories.collection_repository` | SQL-CRUD für Sammlungen |
+| `CollectionService` | `services.collection_service` | Validierung + Orchestrierung |
+| `ServiceError`, `ValidationError`, `DuplicateCollectionError`, `CollectionNotFoundError` | `services.exceptions` | Typisierte, deutschsprachige Fehler |
+| `CollectionController` | `ui.controllers.collection_controller` | Verdrahtet Panel ↔ Service |
+
 ---
 
 ## Datenbankänderungen
 
-Keine (Schema unverändert bei **Version 1**). GUI ist noch nicht an die DB
-gebunden — das erfolgt ab Schritt 3.
+Keine Schemaänderung (weiterhin **Version 1**). GUI ist jetzt für Sammlungen
+an die echte Datenbank gebunden (Karten folgen in Schritt 5).
 
 ---
 
@@ -123,17 +197,15 @@ API wird **strikt lesend** verwendet — keine Kauf-/Verkaufs-Endpunkte.
 
 ## Offene Aufgaben (priorisiert)
 
-1. **Schritt 3 — Sammlungen-CRUD:** Repository + Service + UI-Anbindung
-   (Sammlungen anlegen/umbenennen/löschen/sortieren; `CollectionPanel` an echte
-   Daten binden).
-2. **Schritt 4 — Kartenkatalog & intelligente Suche** (pokemontcg.io/CardTrader).
-3. **Schritt 5 — Karten zu Sammlungen hinzufügen** (Variante/Sprache/Zustand/…).
-4. **Schritt 6 — Preis-Engine + CardTrader-Provider + „Preise aktualisieren".**
-5. **Schritt 7 — Preisverlauf & Diagramme.**
-6. **Schritt 8 — Filter & Volltextsuche.**
-7. **Schritt 9 — Statistiken.**
-8. **Schritt 10 — Export (CSV/Excel/JSON/PDF).**
-9. **Schritt 11 — Webcam-Scanner (OCR/Bildvergleich).**
+1. **Schritt 4 — Kartenkatalog & intelligente Suche** (pokemontcg.io/CardTrader).
+2. **Schritt 5 — Karten zu Sammlungen hinzufügen** (Variante/Sprache/Zustand/…;
+   `CardListPanel` an echte Daten binden).
+3. **Schritt 6 — Preis-Engine + CardTrader-Provider + „Preise aktualisieren".**
+4. **Schritt 7 — Preisverlauf & Diagramme.**
+5. **Schritt 8 — Filter & Volltextsuche.**
+6. **Schritt 9 — Statistiken.**
+7. **Schritt 10 — Export (CSV/Excel/JSON/PDF).**
+8. **Schritt 11 — Webcam-Scanner (OCR/Bildvergleich).**
 
 ---
 
@@ -146,13 +218,16 @@ API wird **strikt lesend** verwendet — keine Kauf-/Verkaufs-Endpunkte.
   keine System-Schrift geladen wird — auf echtem Bildschirm normal. Kein Bug.
 - CardTrader: `/blueprints/export?expansion_id=` liefert oft „Data is not
   ready" → Live-Endpunkt `/blueprints?expansion_id=` verwenden.
+- Behoben während Schritt 3: Signale mit `int`-Parametern dürfen nie mit
+  `None` emittiert werden (PySide6/Shiboken bricht dabei ohne normale
+  Python-Exception ab, statt eines sauberen Fehlers) — siehe Hinweis oben bei
+  „Heute umgesetzt (Schritt 3)". Betraf nur Testcode, nicht die echte UI.
 
 ---
 
 ## Nächster Entwicklungsschritt
 
-**Schritt 3 — Sammlungen-CRUD.** Repository (`app/database/`), Service
-(`app/services/`) und Anbindung des `CollectionPanel` an echte Daten:
-Sammlungen anlegen, umbenennen, löschen, sortieren; Auswahl lädt die zugehörige
-Kartenliste (zunächst leer). Danach kurze Zusammenfassung und Warten auf
-Freigabe.
+**Schritt 4 — Kartenkatalog & intelligente Suche.** Anbindung an
+pokemontcg.io (Katalog/Bilder) und CardTrader (Sets/Blueprints); tolerante
+Suche über Name/Set/Nummer/Teilbegriffe mit Auswahlliste bei mehreren
+Treffern. Danach kurze Zusammenfassung und Warten auf Freigabe.

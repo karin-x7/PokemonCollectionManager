@@ -6,6 +6,32 @@ Versionierung nach [SemVer](https://semver.org).
 
 ## [Unreleased]
 
+### Hinzugefügt — Schritt 3: Sammlungen-CRUD
+- `CollectionRepository` (`app/database/repositories/collection_repository.py`):
+  reine SQL-Zugriffsschicht für Sammlungen.
+- `CollectionService` (`app/services/collection_service.py`) mit Validierung
+  und typisierten, deutschsprachigen Fehlern (`app/services/exceptions.py`).
+- `CollectionController` (`app/ui/controllers/collection_controller.py`)
+  verbindet `CollectionPanel` und `CollectionService`.
+- `CollectionPanel` an echte Daten gebunden: anlegen, umbenennen (Doppelklick
+  oder Kontextmenü), löschen (mit Bestätigung, kaskadiert auf Karten),
+  Umsortieren per Drag & Drop. Neu erstellte Sammlungen werden automatisch
+  ausgewählt.
+- Desktop- und Startmenü-Verknüpfung zum Starten ohne Terminal
+  (`pythonw.exe -m app.main`, kein Konsolenfenster).
+- 21 Tests für Repository/Service, 15 Tests für Panel/Controller-Wiring.
+  Gesamt: 55 Tests grün.
+
+### Behoben
+- Ein `Signal(int, ...)` durfte nie mit `None` emittiert werden — PySide6/
+  Shiboken meldet dies nicht als reguläre Python-Exception, sondern hängt den
+  Prozess auf. Ursache war eine fehlende Auto-Auswahl neu erstellter
+  Sammlungen; behoben, indem `CollectionController._on_create` die neue
+  Sammlung nach dem Anlegen automatisch selektiert. In der echten
+  Bedienoberfläche war das nie auslösbar (Kontextmenü/Doppelklick liefern
+  immer ein reales Element) — die Korrektur ist zugleich eine echte
+  UX-Verbesserung.
+
 ### Hinzugefügt — Schritt 2: GUI-Grundgerüst (PySide6)
 - Hauptfenster (`app/ui/main_window.py`) mit Drei-Spalten-Layout
   (Sammlungen · Kartenliste · Kartendetails) über `QSplitter`.

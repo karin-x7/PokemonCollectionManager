@@ -2,15 +2,16 @@
 
 Assembles the three-column layout (collections · card list · card details),
 the top toolbar (search · scanner · price update · export) and the light/dark
-theme toggle. The window is deliberately logic-free: it exposes Qt signals for
-each user intent so that a controller/service can wire them to business logic
-in later steps. For now those intents produce a status-bar message only.
+theme toggle. The window itself holds no business logic: it builds the panels
+and hands them to controllers (e.g. :class:`CollectionController`) that talk
+to the services layer. Toolbar intents without a wired controller yet still
+just produce a status-bar message.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QLineEdit,
@@ -24,7 +25,10 @@ from PySide6.QtWidgets import (
 
 from app import config
 from app.database.connection import Database
+from app.database.repositories.collection_repository import CollectionRepository
 from app.logging_config import get_logger
+from app.services.collection_service import CollectionService
+from app.ui.controllers.collection_controller import CollectionController
 from app.ui.theme import Theme, build_stylesheet
 from app.ui.widgets import CardDetailPanel, CardListPanel, CollectionPanel
 
@@ -41,7 +45,13 @@ class MainWindow(QMainWindow):
 
     def __init__(self, database: Database | None = None, theme: Theme = Theme.LIGHT) -> None:
         super().__init__()
-        # Kept for later steps (services will read/write through it).
+        self._owns_database = database is None
+        if database is None:
+            # Headless/demo convenience (e.g. tests): an initialised in-memory
+            # database so the window is fully functional without a caller
+            # having to bootstrap one. Production always passes a real one.
+            database = Database(":memory:")
+            database.initialize()
         self._database = database
         self._theme = theme
 
@@ -106,6 +116,11 @@ class MainWindow(QMainWindow):
         self.card_list_panel = CardListPanel()
         self.card_detail_panel = CardDetailPanel()
 
+        collection_service = CollectionService(CollectionRepository(self._database))
+        self.collection_controller = CollectionController(
+            self.collection_panel, collection_service, parent=self
+        )
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.collection_panel)
         splitter.addWidget(self.card_list_panel)
@@ -140,12 +155,7 @@ class MainWindow(QMainWindow):
         self.export_requested.connect(
             lambda: self._flash("Export folgt in einem späteren Schritt.")
         )
-        self.collection_panel.new_collection_requested.connect(
-            lambda: self._flash("Sammlungen verwalten folgt in Schritt 3.")
-        )
-        self.collection_panel.collection_selected.connect(
-            lambda name: self._flash(f"Sammlung gewählt: {name}")
-        )
+        self.collection_controller.selection_changed.connect(self._on_collection_selected)
         self.card_detail_panel.open_on_cardmarket_requested.connect(
             lambda: self._flash("Cardmarket-Link folgt in Schritt 6.")
         )
@@ -155,6 +165,13 @@ class MainWindow(QMainWindow):
     def _flash(self, message: str) -> None:
         """Show a transient status-bar message."""
         self.statusBar().showMessage(message, 5000)
+
+    def _on_collection_selected(self, collection_id: int) -> None:
+        """React to a collection selection (card list wiring follows in Step 5)."""
+        if collection_id == -1:
+            self._flash("Keine Sammlung ausgewählt.")
+            return
+        self._flash(f"Sammlung gewählt (ID {collection_id}) — Kartenliste folgt in Schritt 5.")
 
     def toggle_theme(self) -> None:
         """Switch between light and dark mode."""
@@ -170,3 +187,9 @@ class MainWindow(QMainWindow):
             "☀  Hellmodus" if theme is Theme.DARK else "🌙  Dunkelmodus"
         )
         logger.debug("Theme applied: %s", theme.value)
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 — Qt override
+        """Close the database if this window created it itself."""
+        if self._owns_database:
+            self._database.close()
+        super().closeEvent(event)
