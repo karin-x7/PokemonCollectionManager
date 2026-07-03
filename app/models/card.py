@@ -76,3 +76,23 @@ class CardDetailsValues:
     condition: Condition
     quantity: int
     notes: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CardFilter:
+    """Criteria for :meth:`~app.services.card_service.CardService.search_cards`.
+
+    Every field left at its default is simply not filtered on. ``collection_id
+    = None`` means "search across every collection" — the UI's own per-
+    collection view is just this same filter with ``collection_id`` set to
+    the currently selected collection.
+    """
+
+    collection_id: int | None = None
+    search_text: str = ""
+    set_name: str | None = None
+    language: Language | None = None
+    variant: Variant | None = None
+    condition: Condition | None = None
+    min_price: float | None = None
+    max_price: float | None = None

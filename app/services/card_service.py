@@ -13,7 +13,7 @@ from app.catalog.card_image_cache import ensure_card_image
 from app.catalog.models import CatalogCard
 from app.database.repositories.card_repository import CardRepository
 from app.logging_config import get_logger
-from app.models.card import Card, CardDetailsValues
+from app.models.card import Card, CardDetailsValues, CardFilter
 from app.services.exceptions import CardNotFoundError, ValidationError
 
 logger = get_logger(__name__)
@@ -40,6 +40,14 @@ class CardService:
     def list_cards(self, collection_id: int) -> list[Card]:
         """Return all cards owned in a collection."""
         return self._repo.list_by_collection(collection_id)
+
+    def search_cards(self, card_filter: CardFilter) -> list[Card]:
+        """Return cards matching every set criterion in ``card_filter``."""
+        return self._repo.search(card_filter)
+
+    def list_set_names(self, collection_id: int | None) -> list[str]:
+        """Return the distinct set names in scope, for populating a filter."""
+        return self._repo.distinct_set_names(collection_id)
 
     def get_card(self, card_id: int) -> Card:
         """Return a card by id.

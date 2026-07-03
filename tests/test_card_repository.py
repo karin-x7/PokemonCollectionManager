@@ -7,7 +7,7 @@ import pytest
 from app.database.connection import Database
 from app.database.repositories.card_repository import CardRepository
 from app.database.repositories.collection_repository import CollectionRepository
-from app.models.card import Card
+from app.models.card import Card, CardFilter
 from app.models.enums import Condition, Language, PriceQuality, Variant
 
 
@@ -143,3 +143,145 @@ def test_update_cardmarket_url_persists(repo: CardRepository, collection_id: int
 
     updated = repo.get(created.id)
     assert updated.cardmarket_url == "https://prices.pokemontcg.io/cardmarket/skg-h32"
+
+
+# -- search() ---------------------------------------------------------------- #
+
+
+def test_search_with_empty_filter_returns_everything_in_scope(
+    repo: CardRepository, collection_id: int
+) -> None:
+    repo.create(_new_card(collection_id, name="Xatu"))
+    repo.create(_new_card(collection_id, name="Charizard"))
+
+    names = {c.name for c in repo.search(CardFilter(collection_id=collection_id))}
+
+    assert names == {"Xatu", "Charizard"}
+
+
+def test_search_collection_id_none_spans_every_collection(
+    repo: CardRepository, temp_db: Database
+) -> None:
+    binder_id = CollectionRepository(temp_db).create("Binder 3").id
+    vintage_id = CollectionRepository(temp_db).create("Vintage 2").id
+    repo.create(_new_card(binder_id, name="Xatu"))
+    repo.create(_new_card(vintage_id, name="Charizard"))
+
+    names = {c.name for c in repo.search(CardFilter(collection_id=None))}
+
+    assert names == {"Xatu", "Charizard"}
+
+
+def test_search_text_matches_name_set_number_or_notes(
+    repo: CardRepository, collection_id: int
+) -> None:
+    repo.create(_new_card(collection_id, name="Xatu", notes="PSA 9"))
+    repo.create(_new_card(collection_id, name="Charizard", notes=""))
+
+    by_name = repo.search(CardFilter(collection_id=collection_id, search_text="xatu"))
+    by_notes = repo.search(CardFilter(collection_id=collection_id, search_text="psa"))
+
+    assert [c.name for c in by_name] == ["Xatu"]
+    assert [c.name for c in by_notes] == ["Xatu"]
+
+
+def test_search_filters_by_set_language_variant_condition(
+    repo: CardRepository, collection_id: int
+) -> None:
+    repo.create(
+        _new_card(
+            collection_id,
+            name="Xatu",
+            set_name="Skyridge",
+            language=Language.GERMAN,
+            variant=Variant.REVERSE_HOLO,
+            condition=Condition.EXCELLENT,
+        )
+    )
+    repo.create(
+        _new_card(
+            collection_id,
+            name="Charizard",
+            set_name="Base",
+            language=Language.ENGLISH,
+            variant=Variant.HOLO,
+            condition=Condition.NEAR_MINT,
+        )
+    )
+
+    assert [c.name for c in repo.search(CardFilter(collection_id=collection_id, set_name="Base"))] == [
+        "Charizard"
+    ]
+    assert [
+        c.name for c in repo.search(CardFilter(collection_id=collection_id, language=Language.GERMAN))
+    ] == ["Xatu"]
+    assert [
+        c.name
+        for c in repo.search(CardFilter(collection_id=collection_id, variant=Variant.HOLO))
+    ] == ["Charizard"]
+    assert [
+        c.name
+        for c in repo.search(
+            CardFilter(collection_id=collection_id, condition=Condition.EXCELLENT)
+        )
+    ] == ["Xatu"]
+
+
+def test_search_filters_by_price_range(repo: CardRepository, collection_id: int) -> None:
+    cheap = repo.create(_new_card(collection_id, name="Cheap"))
+    pricey = repo.create(_new_card(collection_id, name="Pricey"))
+    repo.update_price(cheap.id, 5.0, "EUR", PriceQuality.EXACT, "", "2026-07-03T00:00:00Z")
+    repo.update_price(pricey.id, 500.0, "EUR", PriceQuality.EXACT, "", "2026-07-03T00:00:00Z")
+
+    assert [c.name for c in repo.search(CardFilter(collection_id=collection_id, min_price=100))] == [
+        "Pricey"
+    ]
+    assert [c.name for c in repo.search(CardFilter(collection_id=collection_id, max_price=10))] == [
+        "Cheap"
+    ]
+
+
+def test_search_combines_multiple_criteria_with_and(
+    repo: CardRepository, collection_id: int
+) -> None:
+    repo.create(_new_card(collection_id, name="Xatu", language=Language.GERMAN))
+    repo.create(_new_card(collection_id, name="Xatu", language=Language.ENGLISH))
+
+    results = repo.search(
+        CardFilter(collection_id=collection_id, search_text="xatu", language=Language.GERMAN)
+    )
+
+    assert len(results) == 1
+    assert results[0].language is Language.GERMAN
+
+
+# -- distinct_set_names() ----------------------------------------------------- #
+
+
+def test_distinct_set_names_scoped_to_one_collection(
+    repo: CardRepository, temp_db: Database
+) -> None:
+    other_id = CollectionRepository(temp_db).create("Vintage 3").id
+    repo.create(_new_card(other_id, name="Charizard", set_name="Base"))
+    repo.create(_new_card(other_id, name="Xatu", set_name="Skyridge"))
+
+    assert repo.distinct_set_names(other_id) == ["Base", "Skyridge"]
+
+
+def test_distinct_set_names_with_none_spans_every_collection(
+    repo: CardRepository, temp_db: Database
+) -> None:
+    a = CollectionRepository(temp_db).create("Binder 4").id
+    b = CollectionRepository(temp_db).create("Binder 5").id
+    repo.create(_new_card(a, name="Xatu", set_name="Skyridge"))
+    repo.create(_new_card(b, name="Charizard", set_name="Base"))
+
+    assert repo.distinct_set_names(None) == ["Base", "Skyridge"]
+
+
+def test_distinct_set_names_excludes_blank_set_name(
+    repo: CardRepository, collection_id: int
+) -> None:
+    repo.create(_new_card(collection_id, name="No Set", set_name=""))
+
+    assert repo.distinct_set_names(collection_id) == []

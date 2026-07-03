@@ -10,7 +10,7 @@ import sqlite3
 from dataclasses import replace
 
 from app.database.connection import Database
-from app.models.card import Card
+from app.models.card import Card, CardFilter
 from app.models.enums import Condition, Language, PriceQuality, Variant
 from app.utils.time import utc_now_iso
 
@@ -63,6 +63,67 @@ class CardRepository:
         """Return a single card by id, or ``None`` if it doesn't exist."""
         row = self._conn.execute("SELECT * FROM cards WHERE id = ?", (card_id,)).fetchone()
         return _row_to_card(row) if row is not None else None
+
+    def search(self, card_filter: CardFilter) -> list[Card]:
+        """Return cards matching every set criterion in ``card_filter``.
+
+        Unset fields (``None``/empty text) are simply not filtered on.
+        ``collection_id=None`` searches across every collection.
+        """
+        clauses: list[str] = []
+        params: list[object] = []
+
+        if card_filter.collection_id is not None:
+            clauses.append("collection_id = ?")
+            params.append(card_filter.collection_id)
+        text = card_filter.search_text.strip()
+        if text:
+            clauses.append("(name LIKE ? OR set_name LIKE ? OR card_number LIKE ? OR notes LIKE ?)")
+            like = f"%{text}%"
+            params.extend([like, like, like, like])
+        if card_filter.set_name:
+            clauses.append("set_name = ?")
+            params.append(card_filter.set_name)
+        if card_filter.language is not None:
+            clauses.append("language = ?")
+            params.append(card_filter.language.code)
+        if card_filter.variant is not None:
+            clauses.append("variant = ?")
+            params.append(card_filter.variant.value)
+        if card_filter.condition is not None:
+            clauses.append("condition = ?")
+            params.append(card_filter.condition.code)
+        if card_filter.min_price is not None:
+            clauses.append("current_price >= ?")
+            params.append(card_filter.min_price)
+        if card_filter.max_price is not None:
+            clauses.append("current_price <= ?")
+            params.append(card_filter.max_price)
+
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self._conn.execute(
+            f"SELECT * FROM cards {where} ORDER BY id DESC", params
+        ).fetchall()
+        return [_row_to_card(row) for row in rows]
+
+    def distinct_set_names(self, collection_id: int | None) -> list[str]:
+        """Return the distinct, non-empty set names in scope, alphabetically.
+
+        ``collection_id=None`` looks across every collection — used to
+        populate the Set filter dropdown for whichever scope is active.
+        """
+        if collection_id is not None:
+            rows = self._conn.execute(
+                "SELECT DISTINCT set_name FROM cards WHERE collection_id = ? "
+                "AND set_name != '' ORDER BY set_name COLLATE NOCASE",
+                (collection_id,),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT DISTINCT set_name FROM cards WHERE set_name != '' "
+                "ORDER BY set_name COLLATE NOCASE"
+            ).fetchall()
+        return [row["set_name"] for row in rows]
 
     def create(self, card: Card) -> Card:
         """Insert a new card. ``card.id`` is ignored.

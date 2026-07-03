@@ -213,3 +213,92 @@ def test_showing_a_card_also_shows_its_price_history_when_repository_given(
 
     assert not detail_panel._price_history._chart_view.isHidden()
     assert detail_panel._price_history._chart.series()[0].count() == 2
+
+
+# -- Filter / scope wiring (Step 9) ------------------------------------------- #
+
+
+def test_filter_bar_search_text_narrows_the_list(
+    controller: CardController, collection_id: int
+) -> None:
+    controller.set_collection(collection_id)
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
+    controller._panel.add_confirmed.emit(
+        CatalogCard(
+            external_id="base-4",
+            name="Charizard",
+            set_name="Base",
+            set_code="base",
+            card_number="4",
+            rarity="Rare Holo",
+            image_small_url=None,
+            image_large_url=None,
+        ),
+        _VALUES,
+    )
+
+    controller._panel.filter_bar._search.setText("xatu")
+
+    assert _names(controller) == ["Xatu"]
+
+
+def test_clearing_the_filter_shows_everything_again(
+    controller: CardController, collection_id: int
+) -> None:
+    controller.set_collection(collection_id)
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
+
+    controller._panel.filter_bar._search.setText("does-not-exist")
+    assert _names(controller) == []
+
+    controller._panel.filter_bar.reset()
+    assert _names(controller) == ["Xatu"]
+
+
+def test_search_all_collections_spans_every_collection(
+    controller: CardController, temp_db: Database, collection_id: int
+) -> None:
+    other_id = CollectionRepository(temp_db).create("Vintage 5").id
+    controller.set_collection(collection_id)
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
+    controller.set_collection(other_id)
+    controller._panel.add_confirmed.emit(
+        CatalogCard(
+            external_id="base-4",
+            name="Charizard",
+            set_name="Base",
+            set_code="base",
+            card_number="4",
+            rarity="Rare Holo",
+            image_small_url=None,
+            image_large_url=None,
+        ),
+        _VALUES,
+    )
+
+    controller._panel.filter_bar._all_collections.setChecked(True)
+
+    assert set(_names(controller)) == {"Xatu", "Charizard"}
+
+
+def test_search_all_collections_works_even_without_a_selected_collection(
+    controller: CardController, collection_id: int
+) -> None:
+    controller.set_collection(collection_id)
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
+    controller.set_collection(-1)  # no collection selected
+    assert _names(controller) == []
+
+    controller._panel.filter_bar._all_collections.setChecked(True)
+
+    assert _names(controller) == ["Xatu"]
+
+
+def test_available_sets_are_refreshed_after_adding_a_card(
+    controller: CardController, collection_id: int
+) -> None:
+    controller.set_collection(collection_id)
+
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
+
+    assert controller._panel.filter_bar._set_combo.findText("Skyridge") > 0

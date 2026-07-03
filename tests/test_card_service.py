@@ -8,7 +8,7 @@ from app.catalog.models import CatalogCard
 from app.database.connection import Database
 from app.database.repositories.card_repository import CardRepository
 from app.database.repositories.collection_repository import CollectionRepository
-from app.models.card import CardDetailsValues
+from app.models.card import CardDetailsValues, CardFilter
 from app.models.enums import Condition, Language, Variant
 from app.services.card_service import CardService
 from app.services.exceptions import CardNotFoundError, ValidationError
@@ -106,6 +106,25 @@ def test_list_cards_returns_only_own_collection(
     service.add_card_from_catalog(other_id, _CATALOG_CARD, _values())
 
     assert len(service.list_cards(collection_id)) == 1
+
+
+def test_search_cards_delegates_to_repository(
+    service: CardService, temp_db: Database, collection_id: int
+) -> None:
+    other_id = CollectionRepository(temp_db).create("Vintage 4").id
+    service.add_card_from_catalog(collection_id, _CATALOG_CARD, _values())
+    service.add_card_from_catalog(other_id, _CATALOG_CARD, _values())
+
+    assert len(service.search_cards(CardFilter(collection_id=collection_id))) == 1
+    assert len(service.search_cards(CardFilter(collection_id=None))) == 2
+
+
+def test_list_set_names_delegates_to_repository(
+    service: CardService, collection_id: int
+) -> None:
+    service.add_card_from_catalog(collection_id, _CATALOG_CARD, _values())
+
+    assert service.list_set_names(collection_id) == ["Skyridge"]
 
 
 def test_update_card_details_persists_changes(service: CardService, collection_id: int) -> None:

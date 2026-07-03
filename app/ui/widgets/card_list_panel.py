@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 from app.catalog.models import CatalogCard
 from app.models.card import Card, CardDetailsValues
 from app.ui.dialogs.card_details_dialog import CardDetailsDialog
+from app.ui.widgets.card_filter_bar import CardFilterBar
 
 _COLUMNS = ["Name", "Set", "Nr.", "Variante", "Sprache", "Zustand", "Menge", "Preis"]
 _ID_ROLE = Qt.ItemDataRole.UserRole
@@ -66,6 +67,9 @@ class CardListPanel(QWidget):
         header = QLabel("Karten")
         header.setObjectName("PanelHeader")
         layout.addWidget(header)
+
+        self.filter_bar = CardFilterBar()
+        layout.addWidget(self.filter_bar)
 
         self._table = QTableWidget(0, len(_COLUMNS))
         self._table.setHorizontalHeaderLabels(_COLUMNS)

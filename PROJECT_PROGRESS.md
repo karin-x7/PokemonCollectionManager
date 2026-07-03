@@ -3,12 +3,12 @@
 > Synchronisationsdatei zwischen mehreren PCs. Enthält jederzeit den aktuellen
 > Entwicklungsstand. Wird nach **jedem** Entwicklungsschritt aktualisiert.
 
-**Letzter Schritt:** Schritt 8 — Preisverlauf-Diagramm (funktional
-abgeschlossen, visueller Feinschliff bewusst auf später verschoben)
+**Letzter Schritt:** Schritt 9 — Filter & Volltextsuche (im laufenden
+Programm bestätigt)
 **Datum:** 2026-07-03
 **Version:** 0.1.0
-**TestStatus:** ✅ 212 Tests grün (`pytest`) · ✅ **im laufenden Programm
-bestätigt** — Diagramm zeigt den echten Preisverlauf der Karte „Xatu"
+**TestStatus:** ✅ 239 Tests grün (`pytest`) · ✅ **im laufenden Programm
+bestätigt**
 
 ---
 
@@ -62,6 +62,11 @@ bestätigt** — Diagramm zeigt den echten Preisverlauf der Karte „Xatu"
   zeigt `price_history` über die Zeit; Platzhaltertext bei 0 oder 1
   Einträgen statt eines leeren/nutzlosen Diagramms. Visueller Feinschliff
   bewusst zurückgestellt (siehe „Nächster Entwicklungsschritt").
+- ✅ **Filter & Volltextsuche:** Filterleiste oberhalb der Kartenliste
+  (Textsuche über Name/Set/Nummer/Notizen, Dropdowns für Set/Sprache/
+  Variante/Zustand, Preis-von/-bis, „Zurücksetzen"). Umschaltbar zwischen
+  „nur aktuelle Sammlung“ und „alle Sammlungen durchsuchen“ (Checkbox) —
+  Letzteres funktioniert auch ohne Sammlungsauswahl in der Seitenleiste.
 - ✅ Dokumentation: `README.md`, `CHANGELOG.md`, dieses Dokument.
 
 ---
@@ -268,6 +273,55 @@ verifizierte Preis. Vom Nutzer bestätigt: „nun steht 200€ passt!"
   ausschließlich durch echte, manuelle Klicks im laufenden Programm
   gefunden — automatisierte Tests allein hätten keinen davon entdeckt, da
   sie alle in der bewusst ungetesteten Integrationsschicht liegen.
+
+---
+
+## Heute umgesetzt (Schritt 9 — Filter & Volltextsuche)
+
+Vom Nutzer präzisiert: Filterleiste oberhalb der Kartenliste (statt eigenem
+Panel), umschaltbar zwischen aktueller Sammlung und sammlungsübergreifender
+Suche.
+
+- **`CardFilter`** (`app/models/card.py`, neu): unveränderliches DTO mit
+  allen Filterkriterien (`collection_id`, `search_text`, `set_name`,
+  `language`, `variant`, `condition`, `min_price`, `max_price`) — jedes auf
+  seinem Default bedeutet „nicht gefiltert“; `collection_id=None` durchsucht
+  alle Sammlungen.
+- **`CardRepository.search(card_filter)`** (neu): baut die SQL-`WHERE`-
+  Klausel dynamisch aus den gesetzten Kriterien zusammen (Textsuche über
+  Name/Set/Nummer/Notizen per `LIKE`, restliche Felder exakt bzw. als
+  Preisspanne). **`CardRepository.distinct_set_names(collection_id)`**
+  (neu): liefert die für das Set-Dropdown nötigen, tatsächlich vorkommenden
+  Set-Namen (scoped auf eine Sammlung oder `None` für alle).
+  `CardService.search_cards`/`list_set_names` delegieren unverändert weiter.
+- **`CardFilterBar`** (`app/ui/widgets/card_filter_bar.py`, neu): Textfeld,
+  vier Dropdowns (Set/Sprache/Variante/Zustand, erster Eintrag „Alle“),
+  Preis-von/-bis-Felder (tolerant gegenüber Komma statt Punkt, ungültige
+  Eingaben werden als „nicht gesetzt“ behandelt statt eines Fehlers),
+  „Alle Sammlungen“-Checkbox, „Zurücksetzen“-Knopf. Reine
+  Präsentations-Komponente — emittiert bei jeder Änderung `filter_changed`
+  (ein `CardFilter`, `collection_id` bleibt unbelegt) bzw. `scope_changed`
+  (Checkbox-Zustand); keine eigene Filterlogik.
+  **Bugfix während der Testphase:** `Variant` (ein `str`-Enum) wurde durch
+  Qt's Combobox-Item-Data-Marshalling beim Auslesen wieder zu einem reinen
+  `str` — derselbe Bug wie in Schritt 5 bei `CardDetailsDialog`, hier
+  ebenso durch `Variant.from_value(...)` behoben.
+- **`CardListPanel`** bettet die Filterleiste zwischen Überschrift und
+  Tabelle ein (`self.filter_bar`, öffentlich für den Controller).
+- **`CardController`** hält jetzt zusätzlichen Zustand (`_filter_fields`,
+  `_search_all_collections`); `refresh()` kombiniert beides mit der
+  Sammlungsauswahl aus der Seitenleiste zu einem `CardFilter` und ruft
+  `CardService.search_cards(...)` statt des bisherigen `list_cards(...)`
+  auf (mit leerem Filter identisches Ergebnis, kein Verhaltensbruch);
+  aktualisiert nebenbei die Set-Dropdown-Optionen. „Alle Sammlungen“
+  funktioniert bewusst auch **ohne** eine in der Seitenleiste gewählte
+  Sammlung — Hinzufügen neuer Karten bleibt davon unberührt und verwendet
+  weiterhin die zuletzt in der Seitenleiste gewählte Sammlung.
+- Manuell im laufenden Programm bestätigt.
+- 27 neue Tests (`CardRepository.search`/`distinct_set_names`,
+  `CardService`-Delegation, `CardFilterBar`-Zustände/Signale,
+  `CardController`-Verdrahtung inkl. sammlungsübergreifender Suche ohne
+  Sammlungsauswahl). Gesamt: **239 Tests grün**.
 
 ---
 
@@ -630,6 +684,25 @@ keine eigene Bilddatei.
 
 ---
 
+## Dateien geändert / neu angelegt (Schritt 9)
+
+**Neu:**
+- `app/ui/widgets/card_filter_bar.py`
+- `tests/test_card_filter_bar.py`
+
+**Geändert:**
+- `app/models/card.py` (`CardFilter`)
+- `app/database/repositories/card_repository.py` (`search`,
+  `distinct_set_names`)
+- `app/services/card_service.py` (`search_cards`, `list_set_names`)
+- `app/ui/widgets/card_list_panel.py` (Filterleiste eingebettet)
+- `app/ui/controllers/card_controller.py` (Filter-/Scope-Zustand,
+  `refresh()` umgebaut)
+- `tests/{test_card_repository,test_card_service,test_card_controller}.py`
+  (neue Tests)
+
+---
+
 ## Dateien geändert / neu angelegt (Schritt 8)
 
 **Neu:**
@@ -876,6 +949,13 @@ keine eigene Bilddatei.
 |---------------|-------|-------|
 | `PriceHistoryChartView` | `ui.widgets.price_history_chart` | Eingebettetes Preisverlauf-Liniendiagramm (QtCharts) |
 
+## Neue Klassen (Schritt 9)
+
+| Klasse / Enum | Modul | Zweck |
+|---------------|-------|-------|
+| `CardFilter` | `models.card` | DTO: alle Such-/Filterkriterien für Karten |
+| `CardFilterBar` | `ui.widgets.card_filter_bar` | Filterleiste über der Kartenliste |
+
 ---
 
 ## Datenbankänderungen
@@ -967,8 +1047,7 @@ späteren Fallback, falls sich das als nötig erweist.
 
 ## Offene Aufgaben (priorisiert)
 
-1. **Schritt 9 — Filter & Volltextsuche.**
-2. **Schritt 10 — Statistiken**, inkl. (vom Nutzer am 2026-07-03 präzisiert):
+1. **Schritt 10 — Statistiken**, inkl. (vom Nutzer am 2026-07-03 präzisiert):
    eigener Tab/View mit **Gesamtpreis-Übersicht** — explizite Summe (Preis ×
    Menge) pro Sammlung/Ordner **und** eine Gesamtsumme über alle Sammlungen
    hinweg (ordnerübergreifend). Baut auf bereits vorhandenen Daten auf
@@ -977,8 +1056,8 @@ späteren Fallback, falls sich das als nötig erweist.
    Restliche ursprünglich geplante Statistiken (Wert pro Set/Sprache/
    Zustand, teuerste Karten, größte Preissteigerung, Durchschnittswert)
    bleiben Teil desselben Schritts.
-3. **Schritt 11 — Export (CSV/Excel/JSON/PDF).**
-4. **Schritt 12 — Webcam-Scanner (OCR/Bildvergleich).**
+2. **Schritt 11 — Export (CSV/Excel/JSON/PDF).**
+3. **Schritt 12 — Webcam-Scanner (OCR/Bildvergleich).**
 
 ---
 
@@ -1037,10 +1116,8 @@ späteren Fallback, falls sich das als nötig erweist.
 
 ## Nächster Entwicklungsschritt
 
-Schritt 8 ist funktional abgeschlossen und bestätigt — keine offenen
-Punkte mehr (visueller Feinschliff bewusst zurückgestellt, siehe oben).
+Schritt 9 ist abgeschlossen und bestätigt — keine offenen Punkte mehr.
 
-**Schritt 9 — Filter & Volltextsuche.** Filter nach Set, Sprache, Variante,
-Zustand, Preis, Sammlung, Name, Kartennummer; Suche über sämtliche Felder
-(siehe Originalspezifikation). Danach kurze Zusammenfassung und Warten auf
-Freigabe.
+**Schritt 10 — Statistiken** (inkl. Gesamtpreis-Übersicht pro Sammlung und
+ordnerübergreifend, siehe „Offene Aufgaben" oben). Danach kurze
+Zusammenfassung und Warten auf Freigabe.

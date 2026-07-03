@@ -6,6 +6,20 @@ Versionierung nach [SemVer](https://semver.org).
 
 ## [Unreleased]
 
+### Hinzugefügt — Schritt 9: Filter & Volltextsuche
+- Filterleiste oberhalb der Kartenliste: Textsuche (Name/Set/Nummer/
+  Notizen), Dropdowns für Set/Sprache/Variante/Zustand, Preis-von/-bis,
+  „Zurücksetzen".
+- Umschaltbar per Checkbox zwischen „nur aktuelle Sammlung" und „alle
+  Sammlungen durchsuchen" — Letzteres funktioniert auch ohne
+  Sammlungsauswahl in der Seitenleiste.
+- `CardFilter`-DTO, `CardRepository.search`/`distinct_set_names`,
+  `CardService.search_cards`/`list_set_names`.
+- Bugfix während der Testphase: `Variant`-Combobox lieferte durch Qt's
+  Item-Data-Marshalling einen rohen `str` statt des Enums zurück (derselbe
+  Bug wie in Schritt 5) — behoben mit `Variant.from_value(...)`.
+- 27 neue Tests. Gesamt: 239 Tests grün.
+
 ### Hinzugefügt — Schritt 8: Preisverlauf-Diagramm
 - `PriceHistoryChartView`: eingebettetes Liniendiagramm im
   Kartendetails-Panel (`PySide6.QtCharts`, keine neue Abhängigkeit).

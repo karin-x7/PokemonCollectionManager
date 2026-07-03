@@ -11,12 +11,14 @@ collections.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from PySide6.QtCore import QObject
 
 from app.catalog.models import CatalogCard
 from app.database.repositories.price_repository import PriceRepository
 from app.logging_config import get_logger
-from app.models.card import Card, CardDetailsValues
+from app.models.card import Card, CardDetailsValues, CardFilter
 from app.services.card_service import CardService
 from app.services.exceptions import ServiceError
 from app.ui.widgets.card_detail_panel import CardDetailPanel
@@ -42,11 +44,15 @@ class CardController(QObject):
         self._service = service
         self._prices = price_repository
         self._collection_id: int | None = None
+        self._filter_fields = CardFilter()
+        self._search_all_collections = False
 
         panel.selection_changed.connect(self._on_selection_changed)
         panel.add_confirmed.connect(self._on_add_confirmed)
         panel.edit_requested.connect(self._on_edit)
         panel.delete_requested.connect(self._on_delete)
+        panel.filter_bar.filter_changed.connect(self._on_filter_changed)
+        panel.filter_bar.scope_changed.connect(self._on_scope_changed)
 
     def set_collection(self, collection_id: int | None) -> None:
         """React to a new collection being selected (or none, id == -1/None)."""
@@ -54,19 +60,30 @@ class CardController(QObject):
         self.refresh()
 
     def refresh(self) -> None:
-        """Reload the current collection's cards from the database.
+        """Reload the currently filtered/scoped set of cards from the database.
 
         Also resyncs the detail panel to whatever ends up selected: Qt's
         ``currentCellChanged`` only fires when the *row index* changes, so an
         edit that leaves the same row selected would otherwise leave the
         detail panel showing stale (pre-edit) values.
         """
-        if self._collection_id is None:
+        if not self._search_all_collections and self._collection_id is None:
             self._panel.set_cards([])
             self._detail_panel.show_empty()
             return
-        self._panel.set_cards(self._service.list_cards(self._collection_id))
+        scope_id = None if self._search_all_collections else self._collection_id
+        active_filter = replace(self._filter_fields, collection_id=scope_id)
+        self._panel.set_cards(self._service.search_cards(active_filter))
+        self._panel.filter_bar.set_available_sets(self._service.list_set_names(scope_id))
         self._sync_detail_panel()
+
+    def _on_filter_changed(self, card_filter: CardFilter) -> None:
+        self._filter_fields = card_filter
+        self.refresh()
+
+    def _on_scope_changed(self, search_all_collections: bool) -> None:
+        self._search_all_collections = search_all_collections
+        self.refresh()
 
     def add_from_catalog(self, catalog_card: CatalogCard) -> None:
         """Start the add-card flow for a catalogue match the user picked."""
