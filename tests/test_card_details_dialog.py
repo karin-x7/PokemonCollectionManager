@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 from app.models.card import CardDetailsValues
-from app.models.enums import Condition, Language, Variant
+from app.models.enums import Condition, Language
 from app.ui.app import build_application
 from app.ui.dialogs.card_details_dialog import CardDetailsDialog
 
@@ -31,41 +31,19 @@ def test_defaults_without_initial(qapp) -> None:
     values = dialog.get_values()
 
     assert values == CardDetailsValues(
-        variant=Variant.NORMAL,
         language=Language.ENGLISH,
         condition=Condition.NEAR_MINT,
         quantity=1,
         notes="",
     )
-    # Variant is a `str`-subclassed Enum: comparing with `==` above would
-    # still pass even if `variant` had decayed into a plain `str` (Qt's combo
-    # box item-data marshalling does exactly that — measured live, and it
-    # crashed CardRepository.create, which accesses `.variant.value`).
-    # Assert the real type explicitly so this regression can't hide again.
-    assert type(values.variant) is Variant
-
-
-def test_variant_survives_combo_box_round_trip_for_every_option(qapp) -> None:
-    dialog = CardDetailsDialog(
-        title="Karte hinzufügen",
-        accept_label="Hinzufügen",
-        display_name="Xatu",
-        display_set="Skyridge",
-        display_number="H32",
-    )
-
-    for index, variant in enumerate(Variant):
-        dialog._variant_combo.setCurrentIndex(index)
-        values = dialog.get_values()
-        assert type(values.variant) is Variant
-        assert values.variant is variant
 
 
 def test_prefills_from_initial(qapp) -> None:
     initial = CardDetailsValues(
-        variant=Variant.REVERSE_HOLO,
         language=Language.GERMAN,
         condition=Condition.EXCELLENT,
+        is_reverse_holo=True,
+        is_signed=True,
         quantity=4,
         notes="PSA 9",
     )
@@ -80,4 +58,24 @@ def test_prefills_from_initial(qapp) -> None:
 
     values = dialog.get_values()
     assert values == initial
-    assert type(values.variant) is Variant
+
+
+def test_extras_checkboxes_round_trip(qapp) -> None:
+    dialog = CardDetailsDialog(
+        title="Karte hinzufügen",
+        accept_label="Hinzufügen",
+        display_name="Xatu",
+        display_set="Skyridge",
+        display_number="H32",
+    )
+
+    dialog._reverse_holo_check.setChecked(True)
+    dialog._signed_check.setChecked(True)
+    dialog._first_edition_check.setChecked(False)
+    dialog._altered_check.setChecked(True)
+    values = dialog.get_values()
+
+    assert values.is_reverse_holo is True
+    assert values.is_signed is True
+    assert values.is_first_edition is False
+    assert values.is_altered is True

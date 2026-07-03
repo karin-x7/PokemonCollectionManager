@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 from app.models.card import Card
-from app.models.enums import Condition, Language, Variant
+from app.models.enums import Condition, Language
 from app.ui.app import build_application
 from app.ui.widgets.card_detail_panel import CardDetailPanel
 
@@ -32,7 +32,7 @@ def _card(**overrides) -> Card:
         set_name="Skyridge",
         set_code="skg",
         card_number="H32",
-        variant=Variant.REVERSE_HOLO,
+        is_reverse_holo=True,
         language=Language.ENGLISH,
         condition=Condition.NEAR_MINT,
         quantity=1,
@@ -64,9 +64,21 @@ def test_show_card_with_non_reverse_variant_passes_false(
         panel._artwork, "show_photo", lambda path, reverse_holo: calls.append(reverse_holo)
     )
 
-    panel.show_card(_card(variant=Variant.HOLO))
+    panel.show_card(_card(is_reverse_holo=False))
 
     assert calls == [False]
+
+
+def test_extras_field_lists_active_flags(panel: CardDetailPanel) -> None:
+    panel.show_card(_card(is_reverse_holo=True, is_signed=True, is_altered=True))
+
+    assert panel._value_labels["Extra"].text() == "Reverse Holo, Signiert, Altered"
+
+
+def test_extras_field_shows_dash_when_none_apply(panel: CardDetailPanel) -> None:
+    panel.show_card(_card(is_reverse_holo=False))
+
+    assert panel._value_labels["Extra"].text() == "—"
 
 
 def test_show_empty_resets_artwork(monkeypatch, panel: CardDetailPanel) -> None:

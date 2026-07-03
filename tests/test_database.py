@@ -36,7 +36,7 @@ def test_schema_version_is_recorded(temp_db: Database) -> None:
     version = temp_db.connection.execute(
         "SELECT MAX(version) AS v FROM schema_migrations"
     ).fetchone()["v"]
-    assert version == 1
+    assert version == 3
 
 
 def test_migrations_are_idempotent(tmp_path: Path) -> None:
@@ -49,7 +49,7 @@ def test_migrations_are_idempotent(tmp_path: Path) -> None:
     second = Database(db_path)
     applied_second = second.initialize()
     try:
-        assert applied_first == 1
+        assert applied_first == 3
         assert applied_second == 0  # nothing pending on a second run
     finally:
         second.close()

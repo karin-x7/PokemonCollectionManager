@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.models import Card, Collection, Condition, Language, PriceQuality, PriceRecord, Variant
+from app.models import Card, Collection, Condition, Language, PriceQuality, PriceRecord
 
 
 def test_condition_ordering_and_distance() -> None:
@@ -15,11 +15,6 @@ def test_condition_ordering_and_distance() -> None:
 def test_language_lookup() -> None:
     assert Language.from_code("DE") is Language.GERMAN
     assert Language.from_code(None) is Language.ENGLISH
-
-
-def test_variant_lookup_is_case_insensitive() -> None:
-    assert Variant.from_value("reverse holo") is Variant.REVERSE_HOLO
-    assert Variant.from_value(None) is Variant.NORMAL
 
 
 def test_price_quality_labels_and_lookup() -> None:

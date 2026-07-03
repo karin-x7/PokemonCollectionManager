@@ -10,13 +10,17 @@ from app.database.repositories.card_repository import CardRepository
 from app.database.repositories.collection_repository import CollectionRepository
 from app.database.repositories.price_repository import PriceRepository
 from app.models.card import Card
-from app.models.enums import Condition, Language, PriceQuality, Variant
+from app.models.enums import Condition, Language, PriceQuality
 from app.pricing.browser_price_reader import BrowserPriceReaderError, build_filtered_url
 from app.pricing.models import CardmarketOffer
 from app.services.exceptions import CardNotFoundError
 from app.services.price_service import PriceService
 
 _CARDMARKET_URL = "https://prices.pokemontcg.io/cardmarket/skg-h32"
+#: Cards built by ``_card()`` below default every extra to False -- every
+#: expected-URL assertion needs the same, since the ladder now filters by
+#: these on every tier.
+_NO_EXTRAS = {"signed": False, "first_edition": False, "altered": False}
 
 
 class FakeOfferReader:
@@ -60,7 +64,6 @@ def _card(temp_db: Database, collection_id: int, **overrides) -> Card:
         id=None,
         collection_id=collection_id,
         name="Xatu",
-        variant=Variant.HOLO,
         language=Language.GERMAN,
         condition=Condition.GOOD,
         cardmarket_url=_CARDMARKET_URL,
@@ -109,7 +112,9 @@ def test_shortlink_is_resolved_before_building_filtered_urls(
 
     service.update_price_for_card(card.id)
 
-    expected_url = build_filtered_url(real_url, language=Language.GERMAN, min_condition=Condition.GOOD)
+    expected_url = build_filtered_url(
+        real_url, language=Language.GERMAN, min_condition=Condition.GOOD, **_NO_EXTRAS
+    )
     assert reader.calls == [(expected_url, "Xatu")]
 
 
@@ -201,9 +206,11 @@ def test_falls_back_to_worse_condition_same_language_when_nothing_at_or_better(
     assert updated.price_quality is PriceQuality.ESTIMATED_FROM_CONDITION
     assert len(reader.calls) == 2
     assert reader.calls[0][0] == build_filtered_url(
-        _CARDMARKET_URL, language=Language.GERMAN, min_condition=Condition.GOOD
+        _CARDMARKET_URL, language=Language.GERMAN, min_condition=Condition.GOOD, **_NO_EXTRAS
     )
-    assert reader.calls[1][0] == build_filtered_url(_CARDMARKET_URL, language=Language.GERMAN)
+    assert reader.calls[1][0] == build_filtered_url(
+        _CARDMARKET_URL, language=Language.GERMAN, **_NO_EXTRAS
+    )
 
 
 def test_estimated_from_language_picks_cheapest_same_condition_other_language(
@@ -226,10 +233,14 @@ def test_estimated_from_language_picks_cheapest_same_condition_other_language(
     assert updated.price_quality is PriceQuality.ESTIMATED_FROM_LANGUAGE
     assert len(reader.calls) == 3
     assert reader.calls[0][0] == build_filtered_url(
-        _CARDMARKET_URL, language=Language.GERMAN, min_condition=Condition.GOOD
+        _CARDMARKET_URL, language=Language.GERMAN, min_condition=Condition.GOOD, **_NO_EXTRAS
     )
-    assert reader.calls[1][0] == build_filtered_url(_CARDMARKET_URL, language=Language.GERMAN)
-    assert reader.calls[2][0] == build_filtered_url(_CARDMARKET_URL, min_condition=Condition.GOOD)
+    assert reader.calls[1][0] == build_filtered_url(
+        _CARDMARKET_URL, language=Language.GERMAN, **_NO_EXTRAS
+    )
+    assert reader.calls[2][0] == build_filtered_url(
+        _CARDMARKET_URL, min_condition=Condition.GOOD, **_NO_EXTRAS
+    )
 
 
 def test_average_used_when_nothing_matches_language_or_condition(
@@ -254,7 +265,7 @@ def test_average_used_when_nothing_matches_language_or_condition(
     assert updated.current_price == 15.0
     assert updated.price_quality is PriceQuality.AVERAGE
     assert len(reader.calls) == 4
-    assert reader.calls[3][0] == _CARDMARKET_URL
+    assert reader.calls[3][0] == build_filtered_url(_CARDMARKET_URL, **_NO_EXTRAS)
 
 
 def test_unmapped_language_falls_back_to_client_side_filtering(
@@ -279,8 +290,36 @@ def test_unmapped_language_falls_back_to_client_side_filtering(
     assert updated.current_price == 9.0  # the cheap English one must be ignored
     assert updated.price_quality is PriceQuality.EXACT
     # No language id to filter by, but the condition filter still applies.
-    expected_url = build_filtered_url(_CARDMARKET_URL, min_condition=Condition.GOOD)
+    expected_url = build_filtered_url(_CARDMARKET_URL, min_condition=Condition.GOOD, **_NO_EXTRAS)
     assert reader.calls == [(expected_url, "Xatu")]
+
+
+def test_extras_are_included_in_every_tier_url(temp_db: Database, collection_id: int) -> None:
+    """A signed/1st-edition/altered card must never be priced against
+
+    offers lacking those exact same extras — Cardmarket's own filters
+    (``extra[isSigned]`` etc.) enforce this server-side, so every ladder
+    tier's URL must carry them, not just the first one.
+    """
+    card = _card(
+        temp_db,
+        collection_id,
+        language=Language.GERMAN,
+        condition=Condition.GOOD,
+        is_signed=True,
+        is_first_edition=True,
+        is_altered=True,
+    )
+    reader = FakeOfferReader([], [], [], [])
+    service = _service(temp_db, reader)
+
+    service.update_price_for_card(card.id)
+
+    assert len(reader.calls) == 4
+    for url, _hint in reader.calls:
+        assert "extra%5BisSigned%5D=Y" in url
+        assert "extra%5BisFirstEd%5D=Y" in url
+        assert "extra%5BisAltered%5D=Y" in url
 
 
 def test_no_offers_found_yields_no_price(temp_db: Database, collection_id: int) -> None:
@@ -335,7 +374,7 @@ def test_missing_cardmarket_url_is_backfilled_from_external_card_id(
     assert updated.cardmarket_url == _CARDMARKET_URL
     assert updated.price_quality is PriceQuality.EXACT
     expected_url = build_filtered_url(
-        _CARDMARKET_URL, language=card.language, min_condition=card.condition
+        _CARDMARKET_URL, language=card.language, min_condition=card.condition, **_NO_EXTRAS
     )
     assert offer_reader.calls == [(expected_url, "Xatu")]
 

@@ -6,6 +6,43 @@ Versionierung nach [SemVer](https://semver.org).
 
 ## [Unreleased]
 
+### Geändert — „Zusätze" → „Extra"; `Variante` entfernt
+- Das alte `Variant`-Feld (Normal/Holo/Promo/Staff) war seit der Umstellung
+  auf die vier Ja/Nein-Flags redundant und wurde komplett entfernt
+  (Schema-Migration v3: `DROP COLUMN variant`, gegen echte Nutzerdaten
+  verifiziert und angewendet).
+- UI-Label „Zusätze" → „Extra" in Kartenliste, Detail-Panel und
+  Bearbeiten-Dialog.
+
+### Verworfen — automatische Cardmarket-Versions-Korrektur
+- Ein Fix-Versuch für falsch verlinkte Vintage-Produktseiten (Base Set
+  Bisaflor öffnete die englische statt der deutschen Produktseite) öffnete
+  bei einem Sprach-Mismatch bis zu 6 zusätzliche Cardmarket-Tabs ohne Pause
+  und löste dadurch eine temporäre Cardmarket-Kontosperre aus. Vollständig
+  zurückgerollt. Soll später mit strikter Drosselung (Pause zwischen Tabs,
+  max. 1–2 Kandidaten) erneut angegangen werden.
+
+### Behoben — Fenstererkennung bei lokalisierten Kartennamen
+- Preisabruf scheiterte zuverlässig bei nicht-englischen Kartennamen (z. B.
+  „Charizard VMAX" auf Deutsch: Seitentitel „Glurak VMAX | Cardmarket"),
+  weil die Fenstererkennung nach dem (englischen) Katalognamen statt nach
+  „cardmarket" (sprachunabhängig) suchte. Live mit einer echten deutschen
+  Charizard-VMAX-Karte gefunden und behoben.
+
+### Hinzugefügt — Kartenzusätze als Ja/Nein-Flags (Reverse Holo/Signiert/1st Edition/Altered)
+- `Variant`-Enum auf Normal/Holo/Promo/Staff reduziert; die vier Zusätze
+  sind jetzt unabhängige `bool`-Felder auf `Card`/`CardDetailsValues` —
+  beliebig kombinierbar (z. B. signiert *und* Reverse Holo).
+- Schema-Migration v2 (neue Spalten + Migration bestehender `variant`-Werte
+  wie `'1st Edition'`), gegen die echte Nutzerdatenbank verifiziert.
+- `CardDetailsDialog` bekommt vier Checkboxen; `CardDetailPanel` zeigt sie
+  als „Zusätze"-Feld an.
+- Preis-Engine filtert jetzt zusätzlich nach Cardmarkets eigenen
+  `extra[isSigned]`/`extra[isFirstEd]`/`extra[isAltered]` (live aus dem
+  DOM bestätigte Parameter) auf **jeder** Leiter-Stufe. Reverse Holo hat
+  auf Cardmarket keinen Filter und bleibt rein informativ.
+- 14 neue/angepasste Tests. Gesamt: 247 Tests grün.
+
 ### Hinzugefügt — Schritt 9: Filter & Volltextsuche
 - Filterleiste oberhalb der Kartenliste: Textsuche (Name/Set/Nummer/
   Notizen), Dropdowns für Set/Sprache/Variante/Zustand, Preis-von/-bis,

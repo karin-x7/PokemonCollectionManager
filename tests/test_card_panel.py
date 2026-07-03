@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QDialog, QMessageBox
 
 from app.catalog.models import CatalogCard
 from app.models.card import Card, CardDetailsValues
-from app.models.enums import Condition, Language, Variant
+from app.models.enums import Condition, Language
 from app.ui.app import build_application
 from app.ui.widgets.card_list_panel import CardListPanel
 
@@ -41,7 +41,6 @@ def _card(**overrides) -> Card:
         set_name="Skyridge",
         set_code="skg",
         card_number="H32",
-        variant=Variant.HOLO,
         language=Language.ENGLISH,
         condition=Condition.NEAR_MINT,
         quantity=1,
@@ -107,7 +106,6 @@ def test_edit_confirmed_emits_id_and_prefilled_values(monkeypatch, panel: CardLi
     dialog = MagicMock()
     dialog.exec.return_value = QDialog.DialogCode.Accepted
     new_values = CardDetailsValues(
-        variant=Variant.REVERSE_HOLO,
         language=Language.GERMAN,
         condition=Condition.EXCELLENT,
         quantity=3,
@@ -128,7 +126,7 @@ def test_edit_confirmed_emits_id_and_prefilled_values(monkeypatch, panel: CardLi
     panel._prompt_edit(0)  # Xatu, id=1
 
     assert received == [(1, new_values)]
-    assert captured_kwargs["initial"].variant is Variant.HOLO  # prefilled from the card
+    assert captured_kwargs["initial"].language is Language.ENGLISH  # prefilled from the card
 
 
 def test_edit_cancelled_emits_nothing(monkeypatch, panel: CardListPanel) -> None:
@@ -150,7 +148,6 @@ def test_prompt_add_from_catalog_emits_add_confirmed(monkeypatch, panel: CardLis
     dialog = MagicMock()
     dialog.exec.return_value = QDialog.DialogCode.Accepted
     values = CardDetailsValues(
-        variant=Variant.NORMAL,
         language=Language.ENGLISH,
         condition=Condition.NEAR_MINT,
         quantity=1,

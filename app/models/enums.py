@@ -12,34 +12,6 @@ from __future__ import annotations
 from enum import Enum
 
 
-class Variant(str, Enum):
-    """Print / finish variant of a card.
-
-    A :class:`str` enum so the value serialises directly to its display text.
-    The list is intentionally open to extension — because variants are stored
-    as text, new members require no database migration.
-    """
-
-    NORMAL = "Normal"
-    HOLO = "Holo"
-    REVERSE_HOLO = "Reverse Holo"
-    FIRST_EDITION = "1st Edition"
-    FIRST_EDITION_HOLO = "1st Edition Holo"
-    UNLIMITED = "Unlimited"
-    PROMO = "Promo"
-    STAFF = "Staff"
-
-    @classmethod
-    def from_value(cls, value: str | None) -> "Variant":
-        """Resolve a stored/display value to a member, defaulting to NORMAL."""
-        if value is None:
-            return cls.NORMAL
-        for member in cls:
-            if member.value.casefold() == str(value).casefold():
-                return member
-        return cls.NORMAL
-
-
 class Condition(Enum):
     """Card grading condition, ordered from best (0) to worst.
 

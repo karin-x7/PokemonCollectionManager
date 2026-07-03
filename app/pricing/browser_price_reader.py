@@ -124,11 +124,17 @@ def supports_language_filter(language: Language) -> bool:
 
 
 def build_filtered_url(
-    base_url: str, *, language: Language | None = None, min_condition: Condition | None = None
+    base_url: str,
+    *,
+    language: Language | None = None,
+    min_condition: Condition | None = None,
+    signed: bool | None = None,
+    first_edition: bool | None = None,
+    altered: bool | None = None,
 ) -> str:
-    """Append Cardmarket's own ``language``/``minCondition`` query filters.
+    """Append Cardmarket's own query filters for language/condition/extras.
 
-    Both filters are applied by Cardmarket itself, server-side, so the
+    All of these are applied by Cardmarket itself, server-side, so the
     returned page already contains only matching offers, sorted by price —
     this lets the reader work from a short, already-narrowed list instead of
     scanning (and potentially misreading) the full, unfiltered offer table.
@@ -136,12 +142,29 @@ def build_filtered_url(
     own semantics. A ``language`` with no known Cardmarket id (see
     :func:`supports_language_filter`) is silently ignored — callers should
     check first if an unfiltered fallback matters.
+
+    ``signed``/``first_edition``/``altered`` map to Cardmarket's own
+    ``extra[isSigned]``/``extra[isFirstEd]``/``extra[isAltered]`` filters
+    (ids confirmed live from the filter form's own inputs — "Egal"/Ja/Nein
+    are ``0``/``Y``/``N``). Unlike ``language``/``min_condition`` these are
+    almost always passed as a definite ``True``/``False`` rather than left
+    ``None``: a real card either is or isn't signed, so leaving this unset
+    would silently match against a page mixing signed and unsigned offers,
+    breaking an "exact" match's accuracy. There's no Cardmarket filter for
+    Reverse Holo at all (not exposed on the product page), so it has no
+    parameter here.
     """
-    params: dict[str, int] = {}
+    params: dict[str, int | str] = {}
     if language is not None and language in _CARDMARKET_LANGUAGE_IDS:
         params["language"] = _CARDMARKET_LANGUAGE_IDS[language]
     if min_condition is not None:
         params["minCondition"] = _CARDMARKET_CONDITION_IDS[min_condition]
+    if signed is not None:
+        params["extra[isSigned]"] = "Y" if signed else "N"
+    if first_edition is not None:
+        params["extra[isFirstEd]"] = "Y" if first_edition else "N"
+    if altered is not None:
+        params["extra[isAltered]"] = "Y" if altered else "N"
     if not params:
         return base_url
     separator = "&" if "?" in base_url else "?"
@@ -256,19 +279,26 @@ def _open_in_chrome(url: str) -> None:
     subprocess.Popen([chrome_path, url])  # noqa: S603 — fixed executable, one URL argument
 
 
-def read_offers_for_card(
+def _open_and_capture_visible_text(
     url: str, match_hint: str, timeout: float = _DEFAULT_TIMEOUT
-) -> list[CardmarketOffer]:
-    """Open ``url`` in Chrome, read its offers, close the tab.
+) -> list[str]:
+    """Open ``url`` in Chrome, capture its visible on-screen text, close the tab.
 
-    ``match_hint`` (typically the card's name) identifies the newly opened
-    tab by title. Matching is deliberately scoped to whatever window is
-    currently in the *foreground* (``GetForegroundWindow``) **and** whose
-    title mentions Chrome, polled repeatedly until both match — not "any
-    open window with a matching title". A live smoke test caught the
-    earlier, broader ``Desktop(...).windows()`` scan matching a stale,
-    already-open tab with a coincidentally similar title (e.g. a leftover
-    Cardmarket tab from an earlier lookup, or even this project's own
+    Matching is scoped to whatever window is currently in the *foreground*
+    (``GetForegroundWindow``) **and** whose title mentions both Chrome and
+    Cardmarket, polled repeatedly until both match — not "any open window
+    with a matching title". ``match_hint`` (the card's name) is used only
+    for the error message if no matching window ever appears, *not* for the
+    matching itself: a real card ("Charizard VMAX" filtered by German)
+    showed a live "Cardmarket-Tab nicht gefunden" failure because Cardmarket
+    renders the page in the requested language, including the card's
+    *localised* name in the title ("Glurak VMAX | Cardmarket") — nothing
+    close to the English catalogue name this project stores. "Cardmarket"
+    itself is the one thing present in the title regardless of locale. A
+    live smoke test earlier also caught the broader ``Desktop(...).windows()``
+    scan matching a stale, already-open tab with a coincidentally similar
+    title (e.g. a leftover Cardmarket tab from an earlier lookup, or even
+    this project's own
     debugging browser session) instead of the tab this call just opened,
     silently returning a real but wrong price. Since opening a URL normally
     focuses the new tab, the foreground window at match time should be
@@ -276,9 +306,8 @@ def read_offers_for_card(
     cheap safety net against matching some unrelated foreground app.
 
     Raises:
-        BrowserPriceReaderError: If Chrome isn't installed, no matching
-            foreground window appears within ``timeout``, or the window's
-            content can't be parsed into any offers.
+        BrowserPriceReaderError: If Chrome isn't installed, or no matching
+            foreground window appears within ``timeout``.
     """
     # Imported lazily: pywinauto/pywin32 are Windows-only, and importing them
     # directly at module load would break this module (and anything
@@ -298,7 +327,8 @@ def read_offers_for_card(
                 title = win32gui.GetWindowText(hwnd)
             except Exception:  # noqa: BLE001 — window may have closed mid-poll
                 title = ""
-            if match_hint.casefold() in title.casefold() and "chrome" in title.casefold():
+            lowered_title = title.casefold()
+            if "cardmarket" in lowered_title and "chrome" in lowered_title:
                 try:
                     candidate = desktop.window(handle=hwnd)
                     candidate.window_text()  # sanity check it's wrappable
@@ -332,16 +362,31 @@ def read_offers_for_card(
                 continue
             if text:
                 lines.append(text)
-
-        offers = _parse_offer_lines(lines)
-        if not offers:
-            raise BrowserPriceReaderError(
-                f"Keine Angebote auf der Cardmarket-Seite für „{match_hint}“ erkannt."
-            )
-        return offers
+        return lines
     finally:
         try:
             window.set_focus()
             window.type_keys("^w")
         except Exception:  # noqa: BLE001 — best-effort tab cleanup
             logger.warning("Could not close the Cardmarket tab for %r automatically.", match_hint)
+
+
+def read_offers_for_card(
+    url: str, match_hint: str, timeout: float = _DEFAULT_TIMEOUT
+) -> list[CardmarketOffer]:
+    """Open ``url`` in Chrome, read its offers, close the tab.
+
+    Raises:
+        BrowserPriceReaderError: If Chrome isn't installed, no matching
+            foreground window appears within ``timeout``, or the window's
+            content can't be parsed into any offers.
+    """
+    lines = _open_and_capture_visible_text(url, match_hint, timeout)
+    offers = _parse_offer_lines(lines)
+    if not offers:
+        raise BrowserPriceReaderError(
+            f"Keine Angebote auf der Cardmarket-Seite für „{match_hint}“ erkannt."
+        )
+    return offers
+
+

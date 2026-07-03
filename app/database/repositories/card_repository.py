@@ -10,8 +10,8 @@ import sqlite3
 from dataclasses import replace
 
 from app.database.connection import Database
-from app.models.card import Card, CardFilter
-from app.models.enums import Condition, Language, PriceQuality, Variant
+from app.models.card import Card, CardDetailsValues, CardFilter
+from app.models.enums import Condition, Language, PriceQuality
 from app.utils.time import utc_now_iso
 
 
@@ -23,9 +23,12 @@ def _row_to_card(row: sqlite3.Row) -> Card:
         set_name=row["set_name"],
         set_code=row["set_code"],
         card_number=row["card_number"],
-        variant=Variant.from_value(row["variant"]),
         language=Language.from_code(row["language"]),
         condition=Condition.from_code(row["condition"]),
+        is_reverse_holo=bool(row["is_reverse_holo"]),
+        is_signed=bool(row["is_signed"]),
+        is_first_edition=bool(row["is_first_edition"]),
+        is_altered=bool(row["is_altered"]),
         quantity=row["quantity"],
         notes=row["notes"],
         photo_path=row["photo_path"],
@@ -87,9 +90,6 @@ class CardRepository:
         if card_filter.language is not None:
             clauses.append("language = ?")
             params.append(card_filter.language.code)
-        if card_filter.variant is not None:
-            clauses.append("variant = ?")
-            params.append(card_filter.variant.value)
         if card_filter.condition is not None:
             clauses.append("condition = ?")
             params.append(card_filter.condition.code)
@@ -136,12 +136,14 @@ class CardRepository:
                 """
                 INSERT INTO cards (
                     collection_id, name, set_name, set_code, card_number,
-                    variant, language, condition, quantity, notes,
+                    language, condition,
+                    is_reverse_holo, is_signed, is_first_edition, is_altered,
+                    quantity, notes,
                     photo_path, external_card_id, cardmarket_url,
                     current_price, price_currency, price_quality,
                     price_rationale, price_updated_at, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     card.collection_id,
@@ -149,9 +151,12 @@ class CardRepository:
                     card.set_name,
                     card.set_code,
                     card.card_number,
-                    card.variant.value,
                     card.language.code,
                     card.condition.code,
+                    int(card.is_reverse_holo),
+                    int(card.is_signed),
+                    int(card.is_first_edition),
+                    int(card.is_altered),
                     card.quantity,
                     card.notes,
                     card.photo_path,
@@ -168,30 +173,26 @@ class CardRepository:
             )
         return replace(card, id=cursor.lastrowid, created_at=now, updated_at=now)
 
-    def update_details(
-        self,
-        card_id: int,
-        variant: Variant,
-        language: Language,
-        condition: Condition,
-        quantity: int,
-        notes: str,
-    ) -> None:
+    def update_details(self, card_id: int, values: CardDetailsValues) -> None:
         """Update the owned-copy attributes editable after creation."""
         with self._conn:
             self._conn.execute(
                 """
                 UPDATE cards
-                SET variant = ?, language = ?, condition = ?, quantity = ?,
-                    notes = ?, updated_at = ?
+                SET language = ?, condition = ?,
+                    is_reverse_holo = ?, is_signed = ?, is_first_edition = ?,
+                    is_altered = ?, quantity = ?, notes = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
-                    variant.value,
-                    language.code,
-                    condition.code,
-                    quantity,
-                    notes,
+                    values.language.code,
+                    values.condition.code,
+                    int(values.is_reverse_holo),
+                    int(values.is_signed),
+                    int(values.is_first_edition),
+                    int(values.is_altered),
+                    values.quantity,
+                    values.notes,
                     utc_now_iso(),
                     card_id,
                 ),

@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 from app.models.card import CardFilter
-from app.models.enums import Condition, Language, Variant
+from app.models.enums import Condition, Language
 from app.ui.app import build_application
 from app.ui.widgets.card_filter_bar import CardFilterBar
 
@@ -41,11 +41,10 @@ def test_set_combo_alle_means_unset(bar: CardFilterBar) -> None:
     assert bar.current_filter().set_name == "Base"
 
 
-def test_language_variant_condition_combos(bar: CardFilterBar) -> None:
+def test_language_condition_combos(bar: CardFilterBar) -> None:
     bar._language_combo.setCurrentIndex(
         bar._language_combo.findData(Language.GERMAN)
     )
-    bar._variant_combo.setCurrentIndex(bar._variant_combo.findData(Variant.HOLO))
     bar._condition_combo.setCurrentIndex(
         bar._condition_combo.findData(Condition.EXCELLENT)
     )
@@ -53,7 +52,6 @@ def test_language_variant_condition_combos(bar: CardFilterBar) -> None:
     result = bar.current_filter()
 
     assert result.language is Language.GERMAN
-    assert result.variant is Variant.HOLO
     assert result.condition is Condition.EXCELLENT
 
 

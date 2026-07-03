@@ -158,6 +158,50 @@ def test_build_filtered_url_appends_to_an_already_queried_base_url() -> None:
     assert url == "https://cardmarket.com/x?utm_source=pokemontcgio&language=3"
 
 
+# --- build_filtered_url: signed / first_edition / altered -------------------- #
+# Cardmarket's own extra[isSigned]/extra[isFirstEd]/extra[isAltered] filters
+# (ids confirmed live from the filter form: 0=Egal, Y=Ja, N=Nein). Unlike
+# language/condition, callers pass these as a definite True/False almost
+# always -- a real card either is or isn't signed.
+
+
+def test_build_filtered_url_signed_true_and_false() -> None:
+    assert build_filtered_url("https://cardmarket.com/x", signed=True) == (
+        "https://cardmarket.com/x?extra%5BisSigned%5D=Y"
+    )
+    assert build_filtered_url("https://cardmarket.com/x", signed=False) == (
+        "https://cardmarket.com/x?extra%5BisSigned%5D=N"
+    )
+
+
+def test_build_filtered_url_first_edition_and_altered() -> None:
+    url = build_filtered_url(
+        "https://cardmarket.com/x", first_edition=True, altered=False
+    )
+    assert url == "https://cardmarket.com/x?extra%5BisFirstEd%5D=Y&extra%5BisAltered%5D=N"
+
+
+def test_build_filtered_url_extras_unset_by_default() -> None:
+    # None (unset) means "don't add this filter at all" -- distinct from
+    # False ("Nein"), which does add it.
+    assert build_filtered_url("https://cardmarket.com/x") == "https://cardmarket.com/x"
+
+
+def test_build_filtered_url_combines_everything() -> None:
+    url = build_filtered_url(
+        "https://cardmarket.com/x",
+        language=Language.GERMAN,
+        min_condition=Condition.NEAR_MINT,
+        signed=True,
+        first_edition=False,
+        altered=False,
+    )
+    assert url == (
+        "https://cardmarket.com/x?language=3&minCondition=2"
+        "&extra%5BisSigned%5D=Y&extra%5BisFirstEd%5D=N&extra%5BisAltered%5D=N"
+    )
+
+
 # --- resolve_cardmarket_url ------------------------------------------------ #
 # pokemontcg.io's cardmarket_url is a tracking shortlink whose redirect target
 # is fixed on their end -- query filters appended to the shortlink itself are
@@ -195,3 +239,5 @@ def test_resolve_cardmarket_url_falls_back_to_original_on_request_error() -> Non
     result = resolve_cardmarket_url("https://prices.pokemontcg.io/cardmarket/skg-h32", session=session)
 
     assert result == "https://prices.pokemontcg.io/cardmarket/skg-h32"
+
+

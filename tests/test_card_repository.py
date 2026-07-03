@@ -7,8 +7,8 @@ import pytest
 from app.database.connection import Database
 from app.database.repositories.card_repository import CardRepository
 from app.database.repositories.collection_repository import CollectionRepository
-from app.models.card import Card, CardFilter
-from app.models.enums import Condition, Language, PriceQuality, Variant
+from app.models.card import Card, CardDetailsValues, CardFilter
+from app.models.enums import Condition, Language, PriceQuality
 
 
 @pytest.fixture
@@ -29,7 +29,6 @@ def _new_card(collection_id: int, **overrides) -> Card:
         set_name="Skyridge",
         set_code="skg",
         card_number="H32",
-        variant=Variant.HOLO,
         language=Language.ENGLISH,
         condition=Condition.NEAR_MINT,
         quantity=1,
@@ -76,17 +75,25 @@ def test_update_details_persists_new_values(repo: CardRepository, collection_id:
 
     repo.update_details(
         created.id,
-        variant=Variant.REVERSE_HOLO,
-        language=Language.GERMAN,
-        condition=Condition.EXCELLENT,
-        quantity=3,
-        notes="neu",
+        CardDetailsValues(
+            language=Language.GERMAN,
+            condition=Condition.EXCELLENT,
+            is_reverse_holo=True,
+            is_signed=True,
+            is_first_edition=True,
+            is_altered=True,
+            quantity=3,
+            notes="neu",
+        ),
     )
 
     updated = repo.get(created.id)
-    assert updated.variant is Variant.REVERSE_HOLO
     assert updated.language is Language.GERMAN
     assert updated.condition is Condition.EXCELLENT
+    assert updated.is_reverse_holo is True
+    assert updated.is_signed is True
+    assert updated.is_first_edition is True
+    assert updated.is_altered is True
     assert updated.quantity == 3
     assert updated.notes == "neu"
 
@@ -185,7 +192,7 @@ def test_search_text_matches_name_set_number_or_notes(
     assert [c.name for c in by_notes] == ["Xatu"]
 
 
-def test_search_filters_by_set_language_variant_condition(
+def test_search_filters_by_set_language_condition(
     repo: CardRepository, collection_id: int
 ) -> None:
     repo.create(
@@ -194,7 +201,6 @@ def test_search_filters_by_set_language_variant_condition(
             name="Xatu",
             set_name="Skyridge",
             language=Language.GERMAN,
-            variant=Variant.REVERSE_HOLO,
             condition=Condition.EXCELLENT,
         )
     )
@@ -204,7 +210,6 @@ def test_search_filters_by_set_language_variant_condition(
             name="Charizard",
             set_name="Base",
             language=Language.ENGLISH,
-            variant=Variant.HOLO,
             condition=Condition.NEAR_MINT,
         )
     )
@@ -215,10 +220,6 @@ def test_search_filters_by_set_language_variant_condition(
     assert [
         c.name for c in repo.search(CardFilter(collection_id=collection_id, language=Language.GERMAN))
     ] == ["Xatu"]
-    assert [
-        c.name
-        for c in repo.search(CardFilter(collection_id=collection_id, variant=Variant.HOLO))
-    ] == ["Charizard"]
     assert [
         c.name
         for c in repo.search(

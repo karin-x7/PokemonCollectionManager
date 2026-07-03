@@ -176,6 +176,17 @@ class PriceService:
         (but successfully read) offer list, by contrast, just means "try the
         next, looser tier".
         """
+        # Extras (Reverse Holo excluded -- Cardmarket has no filter for it)
+        # are a hard requirement, not a loosenable ladder step: a signed card
+        # must never be priced against unsigned offers, so every tier below
+        # filters by these, even the "fully unfiltered" last one -- that one
+        # is only unfiltered with respect to language/condition.
+        extras = {
+            "signed": card.is_signed,
+            "first_edition": card.is_first_edition,
+            "altered": card.is_altered,
+        }
+
         # Step 1: same language *and* at-or-better condition, both
         # server-filtered together where Cardmarket supports it. A live
         # smoke test found that filtering by language alone could still
@@ -189,6 +200,7 @@ class PriceService:
             base_url,
             language=card.language if language_filtered else None,
             min_condition=card.condition,
+            **extras,
         )
         try:
             offers = self._offer_reader(at_or_better_url, card.name)
@@ -204,10 +216,8 @@ class PriceService:
         # reached when step 1 found literally no stock at all in this
         # language at the requested condition or better, so it's rare in
         # practice; the pagination risk step 1 avoids is accepted here.
-        same_language_url = (
-            build_filtered_url(base_url, language=card.language)
-            if language_filtered
-            else base_url
+        same_language_url = build_filtered_url(
+            base_url, language=card.language if language_filtered else None, **extras
         )
         try:
             offers = self._offer_reader(same_language_url, card.name)
@@ -219,7 +229,7 @@ class PriceService:
             return result
 
         # Step 3: same condition or better (server-filtered), any language.
-        condition_url = build_filtered_url(base_url, min_condition=card.condition)
+        condition_url = build_filtered_url(base_url, min_condition=card.condition, **extras)
         try:
             offers = self._offer_reader(condition_url, card.name)
         except BrowserPriceReaderError as exc:
@@ -230,9 +240,11 @@ class PriceService:
             return result
 
         # Step 4: nothing matched language or condition — average over
-        # every offer on the fully unfiltered page.
+        # every offer on the page (still scoped to the extras, but neither
+        # language nor condition).
+        extras_only_url = build_filtered_url(base_url, **extras)
         try:
-            offers = self._offer_reader(base_url, card.name)
+            offers = self._offer_reader(extras_only_url, card.name)
         except BrowserPriceReaderError as exc:
             return None, PriceQuality.NO_PRICE, str(exc)
         return _average(offers)

@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
 )
 
 from app.models.card import Card
-from app.models.enums import Variant
 from app.models.price import PriceRecord
 from app.ui.widgets.card_artwork_view import CardArtworkView
 from app.ui.widgets.price_history_chart import PriceHistoryChartView
@@ -28,7 +27,7 @@ _FIELDS = [
     "Name",
     "Set",
     "Kartennummer",
-    "Variante",
+    "Extra",
     "Sprache",
     "Zustand",
     "Menge",
@@ -37,6 +36,19 @@ _FIELDS = [
     "Letzte Aktualisierung",
     "Notizen",
 ]
+
+
+def _extras_text(card: Card) -> str:
+    labels = []
+    if card.is_reverse_holo:
+        labels.append("Reverse Holo")
+    if card.is_signed:
+        labels.append("Signiert")
+    if card.is_first_edition:
+        labels.append("1st Edition")
+    if card.is_altered:
+        labels.append("Altered")
+    return ", ".join(labels) if labels else "—"
 
 
 class CardDetailPanel(QWidget):
@@ -105,7 +117,7 @@ class CardDetailPanel(QWidget):
         """Populate all fields from a real, owned card."""
         self._current_card_id = card.id
         self._price_button.setEnabled(True)
-        self._artwork.show_photo(card.photo_path, card.variant is Variant.REVERSE_HOLO)
+        self._artwork.show_photo(card.photo_path, card.is_reverse_holo)
         price = (
             f"{card.current_price:.2f} {card.price_currency}"
             if card.current_price is not None
@@ -114,7 +126,7 @@ class CardDetailPanel(QWidget):
         self._value_labels["Name"].setText(card.name)
         self._value_labels["Set"].setText(card.set_name or "—")
         self._value_labels["Kartennummer"].setText(card.card_number or "—")
-        self._value_labels["Variante"].setText(card.variant.value)
+        self._value_labels["Extra"].setText(_extras_text(card))
         self._value_labels["Sprache"].setText(card.language.label)
         self._value_labels["Zustand"].setText(card.condition.label)
         self._value_labels["Menge"].setText(str(card.quantity))

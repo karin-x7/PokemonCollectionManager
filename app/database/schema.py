@@ -88,6 +88,26 @@ _V1_INDEXES = (
 )
 
 
+# --- Version 2: card "extras" (Reverse Holo / Signed / 1st Edition /
+# Altered) as independent yes/no flags instead of folded into `variant` ---- #
+
+_V2_ADD_COLUMNS = (
+    "ALTER TABLE cards ADD COLUMN is_reverse_holo INTEGER NOT NULL DEFAULT 0;",
+    "ALTER TABLE cards ADD COLUMN is_signed INTEGER NOT NULL DEFAULT 0;",
+    "ALTER TABLE cards ADD COLUMN is_first_edition INTEGER NOT NULL DEFAULT 0;",
+    "ALTER TABLE cards ADD COLUMN is_altered INTEGER NOT NULL DEFAULT 0;",
+)
+
+# Carry forward what the old, combined `variant` values meant so existing
+# rows keep their meaning under the new model instead of silently losing it.
+_V2_MIGRATE_EXISTING_DATA = (
+    "UPDATE cards SET is_reverse_holo = 1, variant = 'Holo' WHERE variant = 'Reverse Holo';",
+    "UPDATE cards SET is_first_edition = 1, variant = 'Normal' WHERE variant = '1st Edition';",
+    "UPDATE cards SET is_first_edition = 1, variant = 'Holo' WHERE variant = '1st Edition Holo';",
+    "UPDATE cards SET variant = 'Normal' WHERE variant = 'Unlimited';",
+)
+
+
 #: The ordered list of all migrations. Append-only.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(
@@ -100,5 +120,15 @@ MIGRATIONS: tuple[Migration, ...] = (
             _V1_SETTINGS,
             *_V1_INDEXES,
         ),
+    ),
+    Migration(
+        version=2,
+        description="Card extras (Reverse Holo/Signed/1st Edition/Altered) as flags.",
+        statements=(*_V2_ADD_COLUMNS, *_V2_MIGRATE_EXISTING_DATA),
+    ),
+    Migration(
+        version=3,
+        description="Drop the now-redundant `variant` column (Normal/Holo/Promo/Staff).",
+        statements=("ALTER TABLE cards DROP COLUMN variant;",),
     ),
 )

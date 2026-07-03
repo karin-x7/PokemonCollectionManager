@@ -30,7 +30,7 @@ from app.models.card import Card, CardDetailsValues
 from app.ui.dialogs.card_details_dialog import CardDetailsDialog
 from app.ui.widgets.card_filter_bar import CardFilterBar
 
-_COLUMNS = ["Name", "Set", "Nr.", "Variante", "Sprache", "Zustand", "Menge", "Preis"]
+_COLUMNS = ["Name", "Set", "Nr.", "Extra", "Sprache", "Zustand", "Menge", "Preis"]
 _ID_ROLE = Qt.ItemDataRole.UserRole
 
 
@@ -38,6 +38,19 @@ def _price_text(card: Card) -> str:
     if card.current_price is None:
         return "—"
     return f"{card.current_price:.2f} {card.price_currency}"
+
+
+def _extras_text(card: Card) -> str:
+    labels = []
+    if card.is_reverse_holo:
+        labels.append("Rev. Holo")
+    if card.is_signed:
+        labels.append("Sign.")
+    if card.is_first_edition:
+        labels.append("1st Ed.")
+    if card.is_altered:
+        labels.append("Alt.")
+    return ", ".join(labels) if labels else "—"
 
 
 class CardListPanel(QWidget):
@@ -104,7 +117,7 @@ class CardListPanel(QWidget):
                 card.name,
                 card.set_name,
                 card.card_number,
-                card.variant.value,
+                _extras_text(card),
                 card.language.code,
                 card.condition.code,
                 str(card.quantity),
@@ -179,9 +192,12 @@ class CardListPanel(QWidget):
             display_set=card.set_name,
             display_number=card.card_number,
             initial=CardDetailsValues(
-                variant=card.variant,
                 language=card.language,
                 condition=card.condition,
+                is_reverse_holo=card.is_reverse_holo,
+                is_signed=card.is_signed,
+                is_first_edition=card.is_first_edition,
+                is_altered=card.is_altered,
                 quantity=card.quantity,
                 notes=card.notes,
             ),

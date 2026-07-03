@@ -9,7 +9,7 @@ from app.database.connection import Database
 from app.database.repositories.card_repository import CardRepository
 from app.database.repositories.collection_repository import CollectionRepository
 from app.models.card import CardDetailsValues, CardFilter
-from app.models.enums import Condition, Language, Variant
+from app.models.enums import Condition, Language
 from app.services.card_service import CardService
 from app.services.exceptions import CardNotFoundError, ValidationError
 
@@ -28,7 +28,6 @@ _CATALOG_CARD = CatalogCard(
 
 def _values(**overrides) -> CardDetailsValues:
     base = dict(
-        variant=Variant.HOLO,
         language=Language.ENGLISH,
         condition=Condition.NEAR_MINT,
         quantity=1,
@@ -59,7 +58,6 @@ def test_add_card_from_catalog_maps_catalog_fields(
     assert card.set_code == "skg"
     assert card.card_number == "H32"
     assert card.external_card_id == "skg-h32"
-    assert card.variant is Variant.HOLO
     assert card.collection_id == collection_id
     assert card.cardmarket_url == "https://prices.pokemontcg.io/cardmarket/skg-h32"
 

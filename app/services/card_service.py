@@ -77,9 +77,12 @@ class CardService:
             set_name=catalog_card.set_name,
             set_code=catalog_card.set_code,
             card_number=catalog_card.card_number,
-            variant=values.variant,
             language=values.language,
             condition=values.condition,
+            is_reverse_holo=values.is_reverse_holo,
+            is_signed=values.is_signed,
+            is_first_edition=values.is_first_edition,
+            is_altered=values.is_altered,
             quantity=values.quantity,
             notes=values.notes,
             photo_path=photo_path,
@@ -101,10 +104,7 @@ class CardService:
         """
         self.get_card(card_id)  # raises CardNotFoundError
         _validate_quantity(values.quantity)
-        self._repo.update_details(
-            card_id, values.variant, values.language, values.condition, values.quantity,
-            values.notes,
-        )
+        self._repo.update_details(card_id, values)
         logger.info("Card details updated: id=%s", card_id)
 
     def remove_card(self, card_id: int) -> None:

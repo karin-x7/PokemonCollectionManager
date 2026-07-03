@@ -1,7 +1,7 @@
 """The :class:`Card` domain object.
 
 Represents a single owned card entry within a collection, including its
-identifying attributes (name/set/number/variant/language/condition) and the
+identifying attributes (name/set/number/language/condition/extras) and the
 most recently determined Cardmarket-based price together with the reasoning
 behind it.
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.models.enums import Condition, Language, PriceQuality, Variant
+from app.models.enums import Condition, Language, PriceQuality
 
 
 @dataclass(slots=True)
@@ -18,8 +18,8 @@ class Card:
     """A single owned card entry.
 
     The identity attributes (``name``, ``set_code``, ``card_number``,
-    ``variant``, ``language``, ``condition``) are exactly those the pricing
-    engine matches on for an "exact" Cardmarket hit.
+    ``language``, ``condition``, plus the "extras" below) are exactly those
+    the pricing engine matches on for an "exact" Cardmarket hit.
     """
 
     id: int | None
@@ -30,9 +30,19 @@ class Card:
     set_name: str = ""
     set_code: str = ""
     card_number: str = ""
-    variant: Variant = Variant.NORMAL
     language: Language = Language.ENGLISH
     condition: Condition = Condition.NEAR_MINT
+
+    # Extras. Each an independent yes/no, matching how Cardmarket itself
+    # treats them (``extra[isSigned]``/``extra[isFirstEd]``/
+    # ``extra[isAltered]`` filters) — a real card can be any combination,
+    # e.g. signed *and* reverse holo at once. Reverse Holo has no Cardmarket
+    # filter equivalent (not exposed on the product page at all); it's kept
+    # here purely for the collector's own record and the artwork overlay.
+    is_reverse_holo: bool = False
+    is_signed: bool = False
+    is_first_edition: bool = False
+    is_altered: bool = False
 
     # Ownership attributes.
     quantity: int = 1
@@ -71,11 +81,14 @@ class CardDetailsValues:
     editing an existing one.
     """
 
-    variant: Variant
     language: Language
     condition: Condition
     quantity: int
     notes: str = ""
+    is_reverse_holo: bool = False
+    is_signed: bool = False
+    is_first_edition: bool = False
+    is_altered: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,7 +105,6 @@ class CardFilter:
     search_text: str = ""
     set_name: str | None = None
     language: Language | None = None
-    variant: Variant | None = None
     condition: Condition | None = None
     min_price: float | None = None
     max_price: float | None = None

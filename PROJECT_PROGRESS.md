@@ -3,12 +3,131 @@
 > Synchronisationsdatei zwischen mehreren PCs. Enthält jederzeit den aktuellen
 > Entwicklungsstand. Wird nach **jedem** Entwicklungsschritt aktualisiert.
 
-**Letzter Schritt:** Schritt 9 — Filter & Volltextsuche (im laufenden
-Programm bestätigt)
-**Datum:** 2026-07-03
+**Letzter Schritt:** Nachbesserung — „Zusätze" → „Extra" umbenannt, `Variante`
+komplett entfernt (Migration v3); Versuch, falsch verlinkte Cardmarket-
+Produktseiten bei Vintage-Sets automatisch zu korrigieren, wieder verworfen
+(siehe „Verworfener Versuch" unten)
+**Datum:** 2026-07-04
 **Version:** 0.1.0
-**TestStatus:** ✅ 239 Tests grün (`pytest`) · ✅ **im laufenden Programm
-bestätigt**
+**TestStatus:** ✅ 245 Tests grün (`pytest`) · ✅ Migration v3 gegen echte
+Nutzerdaten verifiziert und angewendet
+
+---
+
+## Nachbesserung (2026-07-04): „Extra"-Umbenennung, `Variante` entfernt
+
+Nutzer-Feedback: „Zusätze" im UI heißt jetzt „Extra"; das alte `Variante`-Feld
+(Normal/Holo/Promo/Staff) war seit der Umstellung auf die vier Ja/Nein-Flags
+(Reverse Holo/Signiert/1st Edition/Altered) redundant und wurde auf
+ausdrücklichen Wunsch **komplett entfernt**:
+
+- `Variant`-Enum aus `app/models/enums.py` entfernt, alle Referenzen in
+  Modellen/Repository/Service/UI/Tests bereinigt.
+- **Migration v3:** `ALTER TABLE cards DROP COLUMN variant;` — gegen eine
+  Kopie der echten Nutzer-Datenbank getestet (Daten inkl. `is_first_edition`
+  blieben korrekt erhalten), danach auf die echte DB angewendet.
+- UI: Spalte/Label „Variante"/„Zusätze" → „Extra" in Kartenliste, Detail-
+  Panel und Bearbeiten-Dialog.
+
+## Verworfener Versuch (2026-07-04): automatische Versions-Korrektur führte zu Cardmarket-Sperre
+
+Gemeldeter Bug: Ein deutsches Base-Set-Bisaflor (Venusaur) mit 1st Edition
+öffnete beim Preis-Update die falsche Cardmarket-Produktseite (englische
+„1st Edition Shadowless"-Version statt der mehrsprachigen Version). Ursache
+live bestätigt: Cardmarket führt für Base Set **zwei komplett getrennte
+Produkte** (`Venusaur-V2-BS15`, nur Englisch, vs. `Venusaur-V1-BS15`,
+mehrsprachig) — pokemontcg.io verlinkt für diese Karte die falsche Version.
+
+Ein erster Fix-Versuch (automatische Erkennung über die „Sprache"-Filter-
+Sidebar + automatisches Durchprobieren der `-V<n>-`-Geschwisterversionen)
+wurde implementiert, getestet (7 neue Unit-Tests, alle grün) und live
+ausprobiert — dabei hat die Kandidaten-Suche bis zu 6 zusätzliche
+Cardmarket-Tabs ohne Pause direkt hintereinander geöffnet. Das hat eine
+**temporäre Cardmarket-Sperre** des Nutzer-Accounts ausgelöst (mittlerweile
+wieder abgelaufen). Verstößt gegen das Projekt-Grundprinzip „ein Klick = eine
+Karte, kein Batch/Loop" (siehe Architektur-Entscheidung unten).
+
+**Vollständig zurückgerollt:** Der gesamte Korrektur-Mechanismus (neue
+Funktionen in `browser_price_reader.py`, neue Konstruktor-Parameter in
+`PriceService`, alle zugehörigen Tests) wurde wieder entfernt. Der Stand ist
+identisch zum Stand vor diesem Versuch (245 Tests, unverändertes Preis-
+Ladder-Verhalten).
+
+**Nutzer-Entscheidung (2026-07-04):** Das Bisaflor-Problem soll später erneut
+angegangen werden, aber mit strikter Drosselung (spürbare Pause zwischen
+Tabs, max. 1–2 Kandidatenversionen statt 6) statt der bisherigen
+Kandidatenschleife. Bis dahin: Preis für solche Vintage-Karten notfalls
+manuell auf Cardmarket nachschauen.
+
+---
+
+## Nachbesserung (2026-07-03, nach Schritt 9): zwei vom Nutzer gemeldete Bugs
+
+### Bug A — Fenstererkennung scheiterte bei lokalisierten Kartennamen
+
+Nutzer fügte eine deutsche „Charizard VMAX" hinzu; Preisabruf öffnete
+nachweislich den richtigen Tab, lieferte aber dauerhaft „Tab nicht
+gefunden". Ursache: Cardmarket rendert die Seite bei `language=DE` mit dem
+**deutschen** Pokémon-Namen im Titel („Glurak VMAX | Cardmarket" — „Glurak"
+ist Charizards deutscher Name), während unser `match_hint` immer der
+englische Katalogname war. Bei „Xatu" fiel das nie auf, weil der Name in
+beiden Sprachen zufällig gleich ist.
+**Behoben:** Fenstererkennung verlangt jetzt „cardmarket" (sprachunabhängig,
+steht auf jeder Produktseite) statt des Kartennamens im Titel; `match_hint`
+dient nur noch der Fehlermeldung. Live mit der echten Charizard-VMAX-Karte
+verifiziert.
+
+### Bug/Feature B — Kartenzusätze als echte Ja/Nein-Flags
+
+Nutzer wies darauf hin: Cardmarkets „Extra"-Filter (Reverse Holo/Signiert/
+1st Edition/Altered) lassen beim **Suchen** „Egal" zu, aber eine reale Karte
+**muss** bei jedem dieser Merkmale eindeutig Ja oder Nein sein — unklar
+vermischt in einem einzigen `Variant`-Dropdown wie bisher, unvollständig
+(Signiert/Altered fehlten komplett) und für die Preisermittlung ungenau
+(z. B. hätte eine signierte Karte gegen unsignierte Angebote gematcht werden
+können).
+
+**Live recherchiert (nicht geraten):** Cardmarkets tatsächliche Filter sind
+`extra[isSigned]`, `extra[isFirstEd]`, `extra[isAltered]` (`0`=Egal,
+`Y`=Ja, `N`=Nein) — bestätigt direkt aus dem Filterformular-DOM. **Reverse
+Holo ist auf Cardmarket kein Filter** (weder auf der Produktseite noch als
+eigenes Produkt gefunden) — bleibt rein informativ/für den eigenen
+Bildüberlagerungs-Effekt, fließt nicht in die Preisfilter ein.
+
+**Umgesetzt:**
+- `Variant`-Enum auf reine Drucktypen reduziert: `Normal`/`Holo`/`Promo`/
+  `Staff` (Reverse Holo/1st Edition/1st Edition Holo/Unlimited entfernt —
+  jetzt durch die neuen Flags abgedeckt).
+- `Card`/`CardDetailsValues` bekommen vier neue Felder:
+  `is_reverse_holo`, `is_signed`, `is_first_edition`, `is_altered`
+  (alle `bool`, unabhängig kombinierbar — z. B. „signiert **und**
+  Reverse Holo" ist jetzt darstellbar, vorher nicht).
+- **Schema-Migration Version 2:** vier neue Spalten
+  (`is_reverse_holo`/`is_signed`/`is_first_edition`/`is_altered`,
+  `INTEGER NOT NULL DEFAULT 0`) + Datenmigration bestehender `variant`-Werte
+  (`'Reverse Holo'` → `is_reverse_holo=1` + `variant='Holo'`; `'1st Edition'`
+  → `is_first_edition=1` + `variant='Normal'`; `'1st Edition Holo'` →
+  `is_first_edition=1` + `variant='Holo'`; `'Unlimited'` → `variant='Normal'`).
+  **Gegen die echte Datenbank verifiziert:** Die bestehende Karte „Venusaur"
+  (`variant='1st Edition'`) wurde korrekt zu `variant='Normal'`,
+  `is_first_edition=1` migriert; „Xatu"/„Charizard VMAX" blieben unberührt.
+- `CardDetailsDialog`: vier neue Checkboxen (Reverse Holo/Signiert/
+  1st Edition/Altered) neben dem Variante-Dropdown.
+- `CardDetailPanel`: neues Feld „Zusätze" zeigt die aktiven Flags
+  kommagetrennt an (z. B. „Reverse Holo, Signiert") oder „—".
+- **Preis-Engine:** `build_filtered_url` bekommt `signed`/`first_edition`/
+  `altered`-Parameter; `PriceService._determine_price` reicht sie in
+  **jede** Leiter-Stufe durch (auch die „ungefilterte" Durchschnitts-Stufe
+  ist nur bezüglich Sprache/Zustand ungefiltert, nie bezüglich der Extras) —
+  eine signierte Karte kann so nie mehr gegen unsignierte Angebote gematcht
+  werden.
+- 14 neue/angepasste Tests (Migration, Dialog-Checkboxen, Detail-Panel-
+  Anzeige, URL-Filter-Parameter, Preis-Leiter mit Extras). Gesamt:
+  **247 Tests grün.**
+
+**⚠️ Noch offen:** Finaler Klick-Test im laufenden Programm (Karte mit
+Zusätzen anlegen/bearbeiten, Charizard-VMAX-Preis erneut abrufen) steht
+noch aus.
 
 ---
 
@@ -1063,7 +1182,17 @@ späteren Fallback, falls sich das als nötig erweist.
 
 ## Bekannte Bugs
 
-- Keine funktionalen Bugs.
+- **Offen (2026-07-04):** Vintage-Sets mit mehreren Cardmarket-„Versionen"
+  (z. B. Base Set: `-V1-` mehrsprachig vs. `-V2-` nur Englisch) können bei
+  nicht-englischen Karten die falsche Produktseite verlinkt bekommen (siehe
+  „Verworfener Versuch" oben) — Preis ggf. manuell auf Cardmarket prüfen, bis
+  eine gedrosselte Korrektur nachgerüstet wird. Vom Nutzer bestätigter
+  korrekter Link für Bisaflor (Base Set, DE, 1st Edition) als Referenz für
+  den späteren Fix:
+  `https://www.cardmarket.com/de/Pokemon/Products/Singles/Base-Set/Venusaur-V1-BS15?language=3&isFirstEd=Y`
+  — Cardmarket akzeptiert hier `isFirstEd=Y` auch **ohne** das
+  `extra[...]`-Wrapper-Präfix, das der bisherige Code sonst verwendet.
+- Keine weiteren funktionalen Bugs.
 - Windows-Konsole zeigt Sonderzeichen je nach Codepage als `�`; Logdatei ist
   korrektes UTF-8 (rein kosmetisch).
 - Offscreen-Rendering (nur für Test-Screenshots) zeigt Text als Kästchen, weil

@@ -9,7 +9,7 @@ from app.database.repositories.card_repository import CardRepository
 from app.database.repositories.collection_repository import CollectionRepository
 from app.database.repositories.price_repository import PriceRepository
 from app.models.card import Card
-from app.models.enums import Condition, Language, PriceQuality, Variant
+from app.models.enums import Condition, Language, PriceQuality
 from app.models.price import PriceRecord
 
 
@@ -26,7 +26,6 @@ def card_id(temp_db: Database) -> int:
             id=None,
             collection_id=collection_id,
             name="Xatu",
-            variant=Variant.HOLO,
             language=Language.ENGLISH,
             condition=Condition.NEAR_MINT,
         )
@@ -75,7 +74,6 @@ def test_list_for_card_returns_only_its_own_records(
             id=None,
             collection_id=collection_id,
             name="Charizard",
-            variant=Variant.HOLO,
             language=Language.ENGLISH,
             condition=Condition.NEAR_MINT,
         )

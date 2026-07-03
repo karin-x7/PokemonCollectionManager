@@ -14,7 +14,7 @@ from app.database.repositories.card_repository import CardRepository
 from app.database.repositories.collection_repository import CollectionRepository
 from app.database.repositories.price_repository import PriceRepository
 from app.models.card import CardDetailsValues
-from app.models.enums import Condition, Language, PriceQuality, Variant
+from app.models.enums import Condition, Language, PriceQuality
 from app.models.price import PriceRecord
 from app.services.card_service import CardService
 from app.ui.app import build_application
@@ -34,7 +34,6 @@ _CATALOG_CARD = CatalogCard(
 )
 
 _VALUES = CardDetailsValues(
-    variant=Variant.HOLO,
     language=Language.ENGLISH,
     condition=Condition.NEAR_MINT,
     quantity=1,
@@ -105,9 +104,9 @@ def test_edit_requested_persists_changes(controller: CardController, collection_
     card_id = controller._panel.selected_card_id()
 
     new_values = CardDetailsValues(
-        variant=Variant.REVERSE_HOLO,
         language=Language.GERMAN,
         condition=Condition.EXCELLENT,
+        is_reverse_holo=True,
         quantity=5,
         notes="PSA 9",
     )
@@ -128,16 +127,16 @@ def test_edit_requested_refreshes_detail_panel_even_when_row_index_is_unchanged(
     card_id = controller._panel.selected_card_id()
 
     new_values = CardDetailsValues(
-        variant=Variant.REVERSE_HOLO,
         language=Language.GERMAN,
         condition=Condition.EXCELLENT,
+        is_reverse_holo=True,
         quantity=5,
         notes="PSA 9",
     )
     controller._panel.edit_requested.emit(card_id, new_values)
 
     assert controller._detail_panel._value_labels["Menge"].text() == "5"
-    assert controller._detail_panel._value_labels["Variante"].text() == "Reverse Holo"
+    assert controller._detail_panel._value_labels["Extra"].text() == "Reverse Holo"
 
 
 def test_delete_requested_removes_card(controller: CardController, collection_id: int) -> None:
