@@ -1,0 +1,13 @@
+# Normalise line endings across machines (multi-PC sync).
+# Text files are stored with LF in the repository.
+* text=auto eol=lf
+
+# Explicit binary types (never touch line endings).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.gif binary
+*.db binary
+*.pdf binary
+*.xlsx binary
