@@ -111,9 +111,8 @@ vollständig real durchlaufen):
 
 **Ergebnis: Schritt 7 vollständig verifiziert, keine offenen Punkte.**
 
-**Weiterhin kein Git-Commit vorgenommen** (Standard-Konvention dieses
-Projekts: nur auf ausdrückliche Nutzeranfrage). `git` lief auf dieser
-Maschine ohne `safe.directory`-Zusatz problemlos.
+*(Zum Zeitpunkt dieses Abschnitts noch nicht committet — inzwischen erledigt,
+siehe Commit `dca383b` weiter unten in der Git-Historie.)*
 
 ---
 
@@ -904,7 +903,15 @@ späteren Fallback, falls sich das als nötig erweist.
 
 1. **Schritt 8 — Preisverlauf & Diagramme.**
 2. **Schritt 9 — Filter & Volltextsuche.**
-3. **Schritt 10 — Statistiken.**
+3. **Schritt 10 — Statistiken**, inkl. (vom Nutzer am 2026-07-03 präzisiert):
+   eigener Tab/View mit **Gesamtpreis-Übersicht** — explizite Summe (Preis ×
+   Menge) pro Sammlung/Ordner **und** eine Gesamtsumme über alle Sammlungen
+   hinweg (ordnerübergreifend). Baut auf bereits vorhandenen Daten auf
+   (`Card.current_price`, `Card.quantity`, bereits über `total_value`
+   berechenbar) — kein neues Datenmodell nötig, nur Aggregation + Anzeige.
+   Restliche ursprünglich geplante Statistiken (Wert pro Set/Sprache/
+   Zustand, teuerste Karten, größte Preissteigerung, Durchschnittswert)
+   bleiben Teil desselben Schritts.
 4. **Schritt 11 — Export (CSV/Excel/JSON/PDF).**
 5. **Schritt 12 — Webcam-Scanner (OCR/Bildvergleich).**
 
