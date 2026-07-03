@@ -1,0 +1,61 @@
+"""The :class:`Card` domain object.
+
+Represents a single owned card entry within a collection, including its
+identifying attributes (name/set/number/variant/language/condition) and the
+most recently determined Cardmarket-based price together with the reasoning
+behind it.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from app.models.enums import Condition, Language, PriceQuality, Variant
+
+
+@dataclass(slots=True)
+class Card:
+    """A single owned card entry.
+
+    The identity attributes (``name``, ``set_code``, ``card_number``,
+    ``variant``, ``language``, ``condition``) are exactly those the pricing
+    engine matches on for an "exact" Cardmarket hit.
+    """
+
+    id: int | None
+    collection_id: int
+    name: str
+
+    # Identity / catalogue attributes.
+    set_name: str = ""
+    set_code: str = ""
+    card_number: str = ""
+    variant: Variant = Variant.NORMAL
+    language: Language = Language.ENGLISH
+    condition: Condition = Condition.NEAR_MINT
+
+    # Ownership attributes.
+    quantity: int = 1
+    notes: str = ""
+    photo_path: str | None = None
+
+    # Links to external catalogue / marketplace.
+    external_card_id: str | None = None
+    cardmarket_url: str | None = None
+
+    # Latest price snapshot (full history lives in ``price_history``).
+    current_price: float | None = None
+    price_currency: str = "EUR"
+    price_quality: PriceQuality = field(default=PriceQuality.NO_PRICE)
+    price_rationale: str | None = None
+    price_updated_at: str | None = None
+
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    @property
+    def total_value(self) -> float | None:
+        """Combined value of all copies (``current_price * quantity``)."""
+        if self.current_price is None:
+            return None
+        return round(self.current_price * self.quantity, 2)

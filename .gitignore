@@ -1,0 +1,37 @@
+# Virtual environment
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Application data (local, machine-specific)
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+logs/*.log
+logs/*.log.*
+
+# User photos
+data/photos/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Secrets / credentials — NEVER commit real tokens
+config/secrets.json
+config/*.local.json
+.env

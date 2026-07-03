@@ -1,0 +1,8 @@
+# Runtime dependencies for Pokémon Collection Manager.
+# Pinned to compatible minimum versions; upgrade deliberately.
+
+# GUI framework (Qt for Python) — used from Step 2 onwards.
+PySide6>=6.7,<7
+
+# HTTP client for the pokemontcg.io price/catalog provider — used from Step 4.
+requests>=2.31,<3

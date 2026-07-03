@@ -1,0 +1,24 @@
+[project]
+name = "pokemon-collection-manager"
+version = "0.1.0"
+description = "Desktop manager for a Pokémon card collection with Cardmarket-based price discovery."
+requires-python = ">=3.13"
+readme = "README.md"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
