@@ -6,6 +6,16 @@ Versionierung nach [SemVer](https://semver.org).
 
 ## [Unreleased]
 
+### Hinzugefügt — Schritt 8: Preisverlauf-Diagramm
+- `PriceHistoryChartView`: eingebettetes Liniendiagramm im
+  Kartendetails-Panel (`PySide6.QtCharts`, keine neue Abhängigkeit).
+  Platzhaltertext bei 0/1 Einträgen statt leerem Diagramm.
+- `CardController` lädt beim Anzeigen einer Karte jetzt auch deren
+  Preisverlauf (optionaler `price_repository`-Parameter, abwärtskompatibel).
+- Visueller Feinschliff (Farben/Abstände/Beschriftung) bewusst auf einen
+  späteren Zeitpunkt verschoben — ausdrücklicher Nutzerwunsch.
+- 10 neue Tests. Gesamt: 212 Tests grün.
+
 ### Behoben — Schritt 7: Fenster-/Tab-Kontamination bei der Preis-Auslese
 - Ein per Nutzer entdeckter, falscher Preis (78,90 € statt echter 200,00 €)
   deckte zwei reale Bugs auf: (1) `window.descendants()` las den kompletten

@@ -132,7 +132,11 @@ class MainWindow(QMainWindow):
 
         card_service = CardService(CardRepository(self._database))
         self.card_controller = CardController(
-            self.card_list_panel, self.card_detail_panel, card_service, parent=self
+            self.card_list_panel,
+            self.card_detail_panel,
+            card_service,
+            PriceRepository(self._database),
+            parent=self,
         )
 
         pokemontcg_client = PokemonTcgClient()

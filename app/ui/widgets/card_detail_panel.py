@@ -20,7 +20,9 @@ from PySide6.QtWidgets import (
 
 from app.models.card import Card
 from app.models.enums import Variant
+from app.models.price import PriceRecord
 from app.ui.widgets.card_artwork_view import CardArtworkView
+from app.ui.widgets.price_history_chart import PriceHistoryChartView
 
 _FIELDS = [
     "Name",
@@ -76,6 +78,12 @@ class CardDetailPanel(QWidget):
             form.addRow(key, value)
         layout.addLayout(form)
 
+        history_header = QLabel("Preisverlauf:")
+        history_header.setObjectName("FieldLabel")
+        layout.addWidget(history_header)
+        self._price_history = PriceHistoryChartView()
+        layout.addWidget(self._price_history)
+
         layout.addStretch(1)
 
         self._price_button = QPushButton("Preis von Cardmarket abrufen")
@@ -91,6 +99,7 @@ class CardDetailPanel(QWidget):
         for label in self._value_labels.values():
             label.setText("—")
         self._artwork.show_empty()
+        self._price_history.show_empty()
 
     def show_card(self, card: Card) -> None:
         """Populate all fields from a real, owned card."""
@@ -113,6 +122,10 @@ class CardDetailPanel(QWidget):
         self._value_labels["Preisqualität"].setText(card.price_quality.label)
         self._value_labels["Letzte Aktualisierung"].setText(card.price_updated_at or "—")
         self._value_labels["Notizen"].setText(card.notes or "—")
+
+    def show_price_history(self, records: list[PriceRecord]) -> None:
+        """Render the currently shown card's price history."""
+        self._price_history.show_history(records)
 
     def set_price_lookup_running(self, running: bool) -> None:
         """Disable the price button while a lookup is in progress."""

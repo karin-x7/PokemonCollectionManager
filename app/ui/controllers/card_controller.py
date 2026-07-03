@@ -14,8 +14,9 @@ from __future__ import annotations
 from PySide6.QtCore import QObject
 
 from app.catalog.models import CatalogCard
+from app.database.repositories.price_repository import PriceRepository
 from app.logging_config import get_logger
-from app.models.card import CardDetailsValues
+from app.models.card import Card, CardDetailsValues
 from app.services.card_service import CardService
 from app.services.exceptions import ServiceError
 from app.ui.widgets.card_detail_panel import CardDetailPanel
@@ -32,12 +33,14 @@ class CardController(QObject):
         panel: CardListPanel,
         detail_panel: CardDetailPanel,
         service: CardService,
+        price_repository: PriceRepository | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._panel = panel
         self._detail_panel = detail_panel
         self._service = service
+        self._prices = price_repository
         self._collection_id: int | None = None
 
         panel.selection_changed.connect(self._on_selection_changed)
@@ -102,11 +105,16 @@ class CardController(QObject):
         if card_id == -1:
             self._detail_panel.show_empty()
             return
-        self._detail_panel.show_card(self._service.get_card(card_id))
+        self._show_card(self._service.get_card(card_id))
 
     def _sync_detail_panel(self) -> None:
         selected_id = self._panel.selected_card_id()
         if selected_id is None:
             self._detail_panel.show_empty()
         else:
-            self._detail_panel.show_card(self._service.get_card(selected_id))
+            self._show_card(self._service.get_card(selected_id))
+
+    def _show_card(self, card: Card) -> None:
+        self._detail_panel.show_card(card)
+        if self._prices is not None:
+            self._detail_panel.show_price_history(self._prices.list_for_card(card.id))

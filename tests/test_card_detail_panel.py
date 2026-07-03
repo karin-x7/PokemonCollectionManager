@@ -78,6 +78,24 @@ def test_show_empty_resets_artwork(monkeypatch, panel: CardDetailPanel) -> None:
     assert calls == [True]
 
 
+def test_show_empty_resets_price_history(monkeypatch, panel: CardDetailPanel) -> None:
+    calls = []
+    monkeypatch.setattr(panel._price_history, "show_empty", lambda: calls.append(True))
+
+    panel.show_empty()
+
+    assert calls == [True]
+
+
+def test_show_price_history_forwards_records(monkeypatch, panel: CardDetailPanel) -> None:
+    calls = []
+    monkeypatch.setattr(panel._price_history, "show_history", calls.append)
+
+    panel.show_price_history(["record-a", "record-b"])
+
+    assert calls == [["record-a", "record-b"]]
+
+
 def test_price_button_disabled_until_a_card_is_shown(panel: CardDetailPanel) -> None:
     assert not panel._price_button.isEnabled()
 

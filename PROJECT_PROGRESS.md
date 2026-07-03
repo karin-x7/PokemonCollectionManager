@@ -3,14 +3,12 @@
 > Synchronisationsdatei zwischen mehreren PCs. Enthält jederzeit den aktuellen
 > Entwicklungsstand. Wird nach **jedem** Entwicklungsschritt aktualisiert.
 
-**Letzter Schritt:** Schritt 7 — Cardmarket-Preis pro Karte, vollständig
-nachgebessert und **live im laufenden Programm bestätigt**
+**Letzter Schritt:** Schritt 8 — Preisverlauf-Diagramm (funktional
+abgeschlossen, visueller Feinschliff bewusst auf später verschoben)
 **Datum:** 2026-07-03
 **Version:** 0.1.0
-**TestStatus:** ✅ 202 Tests grün (`pytest`) · ✅ **manueller Klick-Test im
-laufenden Programm erfolgreich** — Karte „Xatu" (NM/Englisch) liefert
-korrekt **200,00 €**, `PriceQuality.EXACT` (siehe „Nachbesserung" unten für
-die komplette, fünfteilige Fehlersuche)
+**TestStatus:** ✅ 212 Tests grün (`pytest`) · ✅ **im laufenden Programm
+bestätigt** — Diagramm zeigt den echten Preisverlauf der Karte „Xatu"
 
 ---
 
@@ -51,14 +49,19 @@ die komplette, fünfteilige Fehlersuche)
 - ✅ Test-Suite (Datenbank, Modelle, Repository, Service, GUI-Smoke- und
   GUI-Wiring-Tests headless via `offscreen`).
 - ✅ **Cardmarket-Preis pro Karte:** Knopf in den Kartendetails öffnet die
-  Cardmarket-Produktseite der Karte im normalen Standardbrowser des Nutzers
-  (`webbrowser.open`, keine Fernsteuerung) und liest die bereits geladene
-  Seite per Windows UI Automation aus (wie ein Screenreader — kein DOM-/
-  Netzwerkzugriff); Angebote werden nach Zustand/Sprache gegen die eigene
-  Karte gematcht (Fallback-Leiter EXACT → ESTIMATED_FROM_CONDITION →
-  ESTIMATED_FROM_LANGUAGE → AVERAGE → NO_PRICE), Ergebnis + Preisverlauf-
-  Eintrag werden persistiert. **Bewusst kein Batch-/Sammel-Lauf** — pro
-  Klick genau eine Karte (Details unten).
+  Cardmarket-Produktseite der Karte gezielt in **Google Chrome** und liest
+  die bereits geladene Seite per Windows UI Automation aus (wie ein
+  Screenreader — kein DOM-/Netzwerkzugriff); Angebote werden nach Zustand/
+  Sprache gegen die eigene Karte gematcht (Fallback-Leiter EXACT →
+  ESTIMATED_FROM_CONDITION → ESTIMATED_FROM_LANGUAGE → AVERAGE → NO_PRICE,
+  jede Stufe über Cardmarkets eigene URL-Filter serverseitig vorgefiltert),
+  Ergebnis + Preisverlauf-Eintrag werden persistiert. **Bewusst kein
+  Batch-/Sammel-Lauf** — pro Klick genau eine Karte (Details unten).
+- ✅ **Preisverlauf-Diagramm:** Eingebettetes Liniendiagramm (QtCharts, Teil
+  von PySide6 — keine neue Abhängigkeit) direkt im Kartendetails-Panel,
+  zeigt `price_history` über die Zeit; Platzhaltertext bei 0 oder 1
+  Einträgen statt eines leeren/nutzlosen Diagramms. Visueller Feinschliff
+  bewusst zurückgestellt (siehe „Nächster Entwicklungsschritt").
 - ✅ Dokumentation: `README.md`, `CHANGELOG.md`, dieses Dokument.
 
 ---
@@ -265,6 +268,47 @@ verifizierte Preis. Vom Nutzer bestätigt: „nun steht 200€ passt!"
   ausschließlich durch echte, manuelle Klicks im laufenden Programm
   gefunden — automatisierte Tests allein hätten keinen davon entdeckt, da
   sie alle in der bewusst ungetesteten Integrationsschicht liegen.
+
+---
+
+## Heute umgesetzt (Schritt 8 — Preisverlauf-Diagramm)
+
+Vom Nutzer gewünscht: eingebettetes Diagramm statt eigenem Dialog, damit die
+Preisentwicklung ohne zusätzlichen Klick sichtbar ist.
+
+- **`PriceHistoryChartView`** (`app/ui/widgets/price_history_chart.py`, neu):
+  reine Präsentations-Komponente auf Basis von `PySide6.QtCharts`
+  (`QChart`/`QChartView`/`QLineSeries`/`QDateTimeAxis`/`QValueAxis`) — bereits
+  Teil der bestehenden PySide6-Installation, **keine neue Abhängigkeit**.
+  `show_history(records)`: bei 0 oder 1 Einträgen ein kurzer Platzhaltertext
+  statt eines leeren/nutzlosen Diagramms (Erklärung: kein Preisverlauf bzw.
+  „Preis bisher nur einmal ermittelt"); ab 2 Einträgen ein Liniendiagramm
+  (X-Achse Datum, Y-Achse Preis). `show_empty()` setzt auf den
+  Platzhalter zurück.
+- **`CardDetailPanel`** erweitert um die Chart-Komponente (unterhalb der
+  Kartenfelder, oberhalb des Preis-Abrufen-Knopfs) und `show_price_history(...)`.
+- **`CardController`** bekommt einen optionalen `price_repository`-Parameter;
+  wann immer eine Karte angezeigt wird (`_show_card`, zentralisiert aus den
+  beiden vorherigen `show_card`-Aufrufstellen), wird zusätzlich
+  `price_repository.list_for_card(card.id)` geholt und ans Panel
+  weitergereicht. Ohne übergebenes Repository (z. B. in bestehenden Tests)
+  bleibt das Verhalten unverändert — kein Pflichtparameter, kein Bruch
+  bestehender Aufrufer.
+- **`MainWindow`** übergibt dafür eine `PriceRepository(self._database)`-
+  Instanz an den `CardController` (Lesezugriff auf dem GUI-Thread, keine
+  Threading-Problematik wie beim `PriceLookupWorker` — hier wird nichts an
+  einen Hintergrund-Thread weitergereicht).
+- Manuell im laufenden Programm verifiziert: Diagramm erscheint korrekt für
+  die Karte „Xatu" mit den (aus der Fehlersuche von Schritt 7 stammenden,
+  daher unregelmäßigen) sechs echten Preispunkten. Funktional vom Nutzer
+  bestätigt; **visueller Feinschliff (Farben, Abstände, Beschriftung)
+  bewusst auf einen späteren Zeitpunkt kurz vor Projektabschluss verschoben**
+  (ausdrücklicher Nutzerwunsch — Funktionalität hat während der laufenden
+  Entwicklung Vorrang vor Ästhetik).
+- 10 neue Tests (`PriceHistoryChartView`-Zustände: leer/ein Punkt/mehrere
+  Punkte/Platzhalter-Rücksetzung/Serien-Ersetzung/Paint-Smoke-Test;
+  `CardDetailPanel`-Delegation; `CardController`-Verdrahtung mit und ohne
+  `price_repository`). Gesamt: **212 Tests grün**.
 
 ---
 
@@ -586,6 +630,22 @@ keine eigene Bilddatei.
 
 ---
 
+## Dateien geändert / neu angelegt (Schritt 8)
+
+**Neu:**
+- `app/ui/widgets/price_history_chart.py`
+- `tests/test_price_history_chart.py`
+
+**Geändert:**
+- `app/ui/widgets/card_detail_panel.py` (Chart-Widget eingebettet,
+  `show_price_history`)
+- `app/ui/controllers/card_controller.py` (`price_repository`-Parameter,
+  zentralisiertes `_show_card`)
+- `app/ui/main_window.py` (`PriceRepository` an `CardController` übergeben)
+- `tests/{test_card_detail_panel,test_card_controller}.py` (neue Tests)
+
+---
+
 ## Dateien geändert / neu angelegt (Schritt 7)
 
 **Neu:**
@@ -810,6 +870,12 @@ keine eigene Bilddatei.
 | `PriceLookupWorker` | `ui.workers.price_lookup_worker` | Führt eine einzelne Preis-Abfrage im Hintergrund-Thread aus |
 | `PriceController` | `ui.controllers.price_controller` | Verdrahtet den Kartendetails-Knopf ↔ `PriceService` |
 
+## Neue Klassen (Schritt 8)
+
+| Klasse / Enum | Modul | Zweck |
+|---------------|-------|-------|
+| `PriceHistoryChartView` | `ui.widgets.price_history_chart` | Eingebettetes Preisverlauf-Liniendiagramm (QtCharts) |
+
 ---
 
 ## Datenbankänderungen
@@ -901,9 +967,8 @@ späteren Fallback, falls sich das als nötig erweist.
 
 ## Offene Aufgaben (priorisiert)
 
-1. **Schritt 8 — Preisverlauf & Diagramme.**
-2. **Schritt 9 — Filter & Volltextsuche.**
-3. **Schritt 10 — Statistiken**, inkl. (vom Nutzer am 2026-07-03 präzisiert):
+1. **Schritt 9 — Filter & Volltextsuche.**
+2. **Schritt 10 — Statistiken**, inkl. (vom Nutzer am 2026-07-03 präzisiert):
    eigener Tab/View mit **Gesamtpreis-Übersicht** — explizite Summe (Preis ×
    Menge) pro Sammlung/Ordner **und** eine Gesamtsumme über alle Sammlungen
    hinweg (ordnerübergreifend). Baut auf bereits vorhandenen Daten auf
@@ -912,8 +977,8 @@ späteren Fallback, falls sich das als nötig erweist.
    Restliche ursprünglich geplante Statistiken (Wert pro Set/Sprache/
    Zustand, teuerste Karten, größte Preissteigerung, Durchschnittswert)
    bleiben Teil desselben Schritts.
-4. **Schritt 11 — Export (CSV/Excel/JSON/PDF).**
-5. **Schritt 12 — Webcam-Scanner (OCR/Bildvergleich).**
+3. **Schritt 11 — Export (CSV/Excel/JSON/PDF).**
+4. **Schritt 12 — Webcam-Scanner (OCR/Bildvergleich).**
 
 ---
 
@@ -972,13 +1037,10 @@ späteren Fallback, falls sich das als nötig erweist.
 
 ## Nächster Entwicklungsschritt
 
-Schritt 7 ist jetzt vollständig abgeschlossen und live bestätigt — keine
-offenen Punkte mehr.
+Schritt 8 ist funktional abgeschlossen und bestätigt — keine offenen
+Punkte mehr (visueller Feinschliff bewusst zurückgestellt, siehe oben).
 
-**Schritt 8 — Preisverlauf & Diagramme.** Aufbauend auf der bereits
-seit Schritt 1 bestehenden `price_history`-Tabelle (jetzt aktiv befüllt
-durch `PriceService`/`PriceRepository` aus Schritt 7): Preisverlauf pro
-Karte visualisieren (Diagramm-Widget, vermutlich `QtCharts` oder
-Matplotlib-Embed — Abwägung noch offen), plus eine einfache
-Verlaufsansicht in den Kartendetails. Danach kurze Zusammenfassung und
-Warten auf Freigabe.
+**Schritt 9 — Filter & Volltextsuche.** Filter nach Set, Sprache, Variante,
+Zustand, Preis, Sammlung, Name, Kartennummer; Suche über sämtliche Felder
+(siehe Originalspezifikation). Danach kurze Zusammenfassung und Warten auf
+Freigabe.

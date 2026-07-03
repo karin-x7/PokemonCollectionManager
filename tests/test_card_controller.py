@@ -12,8 +12,10 @@ from app.catalog.models import CatalogCard
 from app.database.connection import Database
 from app.database.repositories.card_repository import CardRepository
 from app.database.repositories.collection_repository import CollectionRepository
+from app.database.repositories.price_repository import PriceRepository
 from app.models.card import CardDetailsValues
-from app.models.enums import Condition, Language, Variant
+from app.models.enums import Condition, Language, PriceQuality, Variant
+from app.models.price import PriceRecord
 from app.services.card_service import CardService
 from app.ui.app import build_application
 from app.ui.controllers.card_controller import CardController
@@ -171,3 +173,43 @@ def test_selection_changed_minus_one_shows_empty(monkeypatch, controller: CardCo
     controller._panel.selection_changed.emit(-1)
 
     assert calls == [True]
+
+
+def test_without_price_repository_history_is_left_untouched(
+    monkeypatch, controller: CardController, collection_id: int
+) -> None:
+    # The `controller` fixture builds a CardController with no
+    # price_repository -- showing a card must not try to fetch history.
+    controller.set_collection(collection_id)
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
+    card_id = controller._panel.selected_card_id()
+    calls = []
+    monkeypatch.setattr(controller._detail_panel, "show_price_history", calls.append)
+
+    controller._panel.selection_changed.emit(card_id)
+
+    assert calls == []
+
+
+def test_showing_a_card_also_shows_its_price_history_when_repository_given(
+    qapp, temp_db: Database, collection_id: int
+) -> None:
+    service = CardService(CardRepository(temp_db), image_downloader=lambda _card: None)
+    prices = PriceRepository(temp_db)
+    panel = CardListPanel()
+    detail_panel = CardDetailPanel()
+    controller = CardController(panel, detail_panel, service, prices)
+    controller.set_collection(collection_id)
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
+    card_id = controller._panel.selected_card_id()
+    prices.add_record(
+        PriceRecord(id=None, card_id=card_id, price=10.0, price_quality=PriceQuality.EXACT)
+    )
+    prices.add_record(
+        PriceRecord(id=None, card_id=card_id, price=15.0, price_quality=PriceQuality.EXACT)
+    )
+
+    controller._panel.selection_changed.emit(card_id)
+
+    assert not detail_panel._price_history._chart_view.isHidden()
+    assert detail_panel._price_history._chart.series()[0].count() == 2
