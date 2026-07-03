@@ -1,9 +1,10 @@
 """Right panel: details of the selected card.
 
-Presentation-only shell showing the fields the application tracks for a card,
-plus placeholder action buttons. Wiring to real card data and to the price
-engine happens in later steps. Emits ``open_on_cardmarket_requested`` for the
-future controller to handle.
+Presentation-only shell showing the fields the application tracks for a
+card. Emits ``price_lookup_requested`` (the shown card's id) when the user
+clicks "Preis von Cardmarket abrufen" — the controller drives the actual
+lookup and calls :meth:`set_price_lookup_running` to disable the button
+meanwhile.
 """
 
 from __future__ import annotations
@@ -11,12 +12,15 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFormLayout,
-    QFrame,
     QLabel,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
+
+from app.models.card import Card
+from app.models.enums import Variant
+from app.ui.widgets.card_artwork_view import CardArtworkView
 
 _FIELDS = [
     "Name",
@@ -36,12 +40,14 @@ _FIELDS = [
 class CardDetailPanel(QWidget):
     """Detail view for a single card."""
 
-    open_on_cardmarket_requested = Signal()
+    #: Emitted with the currently shown card's id.
+    price_lookup_requested = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("Panel")
         self._value_labels: dict[str, QLabel] = {}
+        self._current_card_id: int | None = None
         self._build()
 
     def _build(self) -> None:
@@ -53,15 +59,8 @@ class CardDetailPanel(QWidget):
         header.setObjectName("PanelHeader")
         layout.addWidget(header)
 
-        photo = QFrame()
-        photo.setObjectName("Panel")
-        photo.setMinimumHeight(180)
-        photo_layout = QVBoxLayout(photo)
-        placeholder = QLabel("Kein Foto")
-        placeholder.setObjectName("EmptyState")
-        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        photo_layout.addWidget(placeholder)
-        layout.addWidget(photo)
+        self._artwork = CardArtworkView()
+        layout.addWidget(self._artwork)
 
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
@@ -79,12 +78,46 @@ class CardDetailPanel(QWidget):
 
         layout.addStretch(1)
 
-        open_button = QPushButton("Auf Cardmarket öffnen")
-        open_button.setObjectName("Secondary")
-        open_button.clicked.connect(self.open_on_cardmarket_requested)
-        layout.addWidget(open_button)
+        self._price_button = QPushButton("Preis von Cardmarket abrufen")
+        self._price_button.setObjectName("Secondary")
+        self._price_button.setEnabled(False)
+        self._price_button.clicked.connect(self._on_price_button_clicked)
+        layout.addWidget(self._price_button)
 
     def show_empty(self) -> None:
         """Reset all fields to the empty placeholder value."""
+        self._current_card_id = None
+        self._price_button.setEnabled(False)
         for label in self._value_labels.values():
             label.setText("—")
+        self._artwork.show_empty()
+
+    def show_card(self, card: Card) -> None:
+        """Populate all fields from a real, owned card."""
+        self._current_card_id = card.id
+        self._price_button.setEnabled(True)
+        self._artwork.show_photo(card.photo_path, card.variant is Variant.REVERSE_HOLO)
+        price = (
+            f"{card.current_price:.2f} {card.price_currency}"
+            if card.current_price is not None
+            else "—"
+        )
+        self._value_labels["Name"].setText(card.name)
+        self._value_labels["Set"].setText(card.set_name or "—")
+        self._value_labels["Kartennummer"].setText(card.card_number or "—")
+        self._value_labels["Variante"].setText(card.variant.value)
+        self._value_labels["Sprache"].setText(card.language.label)
+        self._value_labels["Zustand"].setText(card.condition.label)
+        self._value_labels["Menge"].setText(str(card.quantity))
+        self._value_labels["Preis"].setText(price)
+        self._value_labels["Preisqualität"].setText(card.price_quality.label)
+        self._value_labels["Letzte Aktualisierung"].setText(card.price_updated_at or "—")
+        self._value_labels["Notizen"].setText(card.notes or "—")
+
+    def set_price_lookup_running(self, running: bool) -> None:
+        """Disable the price button while a lookup is in progress."""
+        self._price_button.setEnabled(not running and self._current_card_id is not None)
+
+    def _on_price_button_clicked(self) -> None:
+        if self._current_card_id is not None:
+            self.price_lookup_requested.emit(self._current_card_id)

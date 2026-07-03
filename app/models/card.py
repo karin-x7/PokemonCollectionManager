@@ -59,3 +59,20 @@ class Card:
         if self.current_price is None:
             return None
         return round(self.current_price * self.quantity, 2)
+
+
+@dataclass(frozen=True, slots=True)
+class CardDetailsValues:
+    """The user-editable subset of a card's attributes.
+
+    Shared between :class:`~app.ui.dialogs.card_details_dialog.
+    CardDetailsDialog` (collects them) and :class:`~app.services.
+    card_service.CardService` (persists them) for both adding a new card and
+    editing an existing one.
+    """
+
+    variant: Variant
+    language: Language
+    condition: Condition
+    quantity: int
+    notes: str = ""

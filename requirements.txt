@@ -6,3 +6,12 @@ PySide6>=6.7,<7
 
 # HTTP client for the pokemontcg.io price/catalog provider — used from Step 4.
 requests>=2.31,<3
+
+# Windows UI Automation (reads an already-open, normally-launched browser
+# window's on-screen text) for the Cardmarket price lookup — used from
+# Step 7. Not a browser-automation/scraping library: it never drives or
+# navigates the browser, only reads what's already rendered on screen,
+# the same mechanism screen readers use. Pulls in pywin32 (win32gui), used
+# directly to identify the actual foreground window rather than scanning
+# every open window by title.
+pywinauto>=0.6.9,<0.7

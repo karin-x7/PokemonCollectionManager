@@ -24,11 +24,20 @@ from PySide6.QtWidgets import (
 )
 
 from app import config
+from app.catalog.pokemontcg_client import PokemonTcgClient
 from app.database.connection import Database
+from app.database.repositories.card_repository import CardRepository
 from app.database.repositories.collection_repository import CollectionRepository
+from app.database.repositories.price_repository import PriceRepository
 from app.logging_config import get_logger
+from app.services.card_service import CardService
+from app.services.catalog_search_service import CatalogSearchService
 from app.services.collection_service import CollectionService
+from app.services.price_service import PriceService
+from app.ui.controllers.card_controller import CardController
+from app.ui.controllers.catalog_search_controller import CatalogSearchController
 from app.ui.controllers.collection_controller import CollectionController
+from app.ui.controllers.price_controller import PriceController
 from app.ui.theme import Theme, build_stylesheet
 from app.ui.widgets import CardDetailPanel, CardListPanel, CollectionPanel
 
@@ -121,6 +130,33 @@ class MainWindow(QMainWindow):
             self.collection_panel, collection_service, parent=self
         )
 
+        card_service = CardService(CardRepository(self._database))
+        self.card_controller = CardController(
+            self.card_list_panel, self.card_detail_panel, card_service, parent=self
+        )
+
+        pokemontcg_client = PokemonTcgClient()
+        catalog_search_service = CatalogSearchService(pokemontcg_client)
+        self.catalog_search_controller = CatalogSearchController(
+            self, catalog_search_service, parent=self
+        )
+
+        def open_price_service() -> tuple[PriceService, Database]:
+            # Called from PriceLookupWorker's own thread: SQLite connections
+            # can't be shared across threads, so this opens a fresh one to
+            # the same database file rather than reusing self._database
+            # (which belongs to the GUI thread).
+            thread_database = Database(self._database.path)
+            thread_database.initialize()
+            service = PriceService(
+                CardRepository(thread_database), PriceRepository(thread_database), pokemontcg_client
+            )
+            return service, thread_database
+
+        self.price_controller = PriceController(
+            self, self.card_detail_panel, open_price_service, self.card_controller, parent=self
+        )
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.collection_panel)
         splitter.addWidget(self.card_list_panel)
@@ -139,25 +175,24 @@ class MainWindow(QMainWindow):
         self.setStatusBar(status)
 
     def _connect_placeholder_feedback(self) -> None:
-        """Give the toolbar intents visible (non-business-logic) feedback.
-
-        Real handlers replace these in later steps.
-        """
-        self.search_submitted.connect(
-            lambda text: self._flash(f"Suche: „{text}“  (Suchlogik folgt in Schritt 4)")
-        )
+        """Wire toolbar intents to their real handlers, or (for those not yet
+        implemented) a status-bar placeholder message."""
+        self.search_submitted.connect(self.catalog_search_controller.handle_search)
         self.scan_requested.connect(
             lambda: self._flash("Scanner folgt in einem späteren Schritt.")
         )
         self.update_prices_requested.connect(
-            lambda: self._flash("Preisaktualisierung folgt in Schritt 6.")
+            lambda: self._flash(
+                "Preise werden pro Karte einzeln abgerufen (Knopf in den "
+                "Kartendetails) — kein automatischer Sammel-Lauf."
+            )
         )
         self.export_requested.connect(
             lambda: self._flash("Export folgt in einem späteren Schritt.")
         )
-        self.collection_controller.selection_changed.connect(self._on_collection_selected)
-        self.card_detail_panel.open_on_cardmarket_requested.connect(
-            lambda: self._flash("Cardmarket-Link folgt in Schritt 6.")
+        self.collection_controller.selection_changed.connect(self.card_controller.set_collection)
+        self.catalog_search_controller.card_add_requested.connect(
+            self.card_controller.add_from_catalog
         )
 
     # -- Behaviour -------------------------------------------------------- #
@@ -165,13 +200,6 @@ class MainWindow(QMainWindow):
     def _flash(self, message: str) -> None:
         """Show a transient status-bar message."""
         self.statusBar().showMessage(message, 5000)
-
-    def _on_collection_selected(self, collection_id: int) -> None:
-        """React to a collection selection (card list wiring follows in Step 5)."""
-        if collection_id == -1:
-            self._flash("Keine Sammlung ausgewählt.")
-            return
-        self._flash(f"Sammlung gewählt (ID {collection_id}) — Kartenliste folgt in Schritt 5.")
 
     def toggle_theme(self) -> None:
         """Switch between light and dark mode."""

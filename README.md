@@ -22,13 +22,16 @@ langfristiger Wartbarkeit — kein Prototyp, sondern ein erweiterbares Fundament
 - Kartenerkennung per Webcam (OCR / Bildvergleich) sowie intelligente manuelle
   Suche.
 
-> **Hinweis zur Preisquelle.** Ein direkter, automatisierter Zugriff auf
-> cardmarket.com (Scraping) verstößt gegen deren Nutzungsbedingungen und wird
-> bewusst **nicht** umgesetzt. Die volle Zustands-/Sprach-Granularität der
-> Fallback-Regeln setzt die offizielle (gewerbliche) Cardmarket-API voraus.
-> Deshalb ist die Preisermittlung hinter einer `PriceProvider`-Schnittstelle
-> gekapselt: Standard = pokemontcg.io, optional = offizielle Cardmarket-API,
-> Fallback = manuelle Eingabe. Details siehe `PROJECT_PROGRESS.md`.
+> **Hinweis zur Preisquelle (Stand Schritt 7).** Ein automatisierter
+> Bot-Zugriff auf cardmarket.com (z. B. per Playwright/CDP) wird bewusst
+> **nicht** umgesetzt — live getestet, scheitert an Cloudflares
+> Bot-Erkennung, und wäre ohnehin eine Grenze, die dieses Projekt nicht
+> überschreitet. Stattdessen öffnet ein Knopf pro Karte die Cardmarket-Seite
+> im **normalen** Standardbrowser des Nutzers (ein Klick = eine Seite, kein
+> Sammel-Lauf) und liest den bereits geladenen Bildschirminhalt per Windows
+> UI Automation aus — dieselbe Technik wie ein Screenreader, kein DOM-/
+> Netzwerkzugriff auf die Seite. Details und die Architektur-Historie dazu
+> siehe `PROJECT_PROGRESS.md`.
 
 ---
 
