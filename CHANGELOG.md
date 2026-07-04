@@ -6,6 +6,41 @@ Versionierung nach [SemVer](https://semver.org).
 
 ## [Unreleased]
 
+### Hinzugefügt — UI/Design-Überarbeitung
+- Neues, einziges dunkles Navy-Theme mit orange/gelben Akzenten (Light/Dark-
+  Umschalter entfernt).
+- Preisverlauf ist jetzt ein einklappbares Dock rechts (`PriceHistoryDock`)
+  statt im Kartendetail-Panel eingebettet: redesignter Chart mit
+  Achsentiteln, %-Änderung zum vorherigen Preis (grün/rot), Liste der
+  letzten 10 Preis-Updates, "Historie zurücksetzen"-Button mit
+  Sicherheitsabfrage (löscht nur den Verlauf, nicht den aktuellen Preis).
+- Kartenansicht deutlich vergrößert und mit eigenem "Bühnen"-Hintergrund
+  versehen, damit die Karte nicht in leerem Raum wirkt.
+- Mindestfenstergröße und Panel-Mindestbreiten erhöht, damit normales
+  Verkleinern nie mehr Text verdeckt.
+- "Suchen"-Button neben der Toolbar-Katalogsuche (bisher nur Enter).
+- Neues App-Icon (stilisierter Kartenfächer, mit PySide6 selbst gezeichnet,
+  kein Pokémon-Logo/Charakter).
+
+### Behoben — UI-Nachbesserungen (vom Nutzer live gefunden)
+- Kartenbild wurde nicht zugeschnitten (Letterboxing) und Textfelder rückten
+  zu dicht ans Bild heran — Bühne hat jetzt echtes Kartenseitenverhältnis
+  mit Crop-to-fill, plus mehr Abstand zu Feldern/Buttons.
+- Diagramm: kaputtes „€"-Zeichen in Achsenticks, überlappende
+  Datumsbeschriftungen bei mehreren Einträgen — behoben (Einheit nur im
+  Titel, kürzeres/gekipptes Datumsformat, begrenzte Tickanzahl, sichtbare
+  Datenpunkte).
+- Verlaufsliste brauchte horizontales Scrollen — jetzt zweizeilige, breite
+  Einträge statt einer zu langen Zeile.
+- Filterleiste und die beiden Detail-Buttons wurden bei normaler
+  Fensterbreite abgeschnitten — Filterleiste ist jetzt zweizeilig, Buttons
+  stehen untereinander.
+- Preisverlauf-Dock quetschte beim Öffnen die drei Hauptspalten zusammen —
+  das Fenster wird jetzt automatisch mit verbreitert/verschmälert.
+- "Preisverlauf anzeigen" war Einbahnstraße — jetzt ein echter Umschalter
+  (Button-Text synchronisiert sich auch, wenn das Dock über sein eigenes
+  Schließen-Symbol geschlossen wird).
+
 ### Geändert — „Zusätze" → „Extra"; `Variante` entfernt
 - Das alte `Variant`-Feld (Normal/Holo/Promo/Staff) war seit der Umstellung
   auf die vier Ja/Nein-Flags redundant und wurde komplett entfernt

@@ -29,7 +29,7 @@ def _row_to_record(row: sqlite3.Row) -> PriceRecord:
 
 
 class PriceRepository:
-    """Append-only access to a card's price history."""
+    """Access to a card's price history: append new records, or clear them all."""
 
     def __init__(self, database: Database) -> None:
         self._db = database
@@ -69,3 +69,8 @@ class PriceRepository:
             (card_id,),
         ).fetchall()
         return [_row_to_record(row) for row in rows]
+
+    def delete_for_card(self, card_id: int) -> None:
+        """Delete every price history entry for a card. Irreversible."""
+        with self._conn:
+            self._conn.execute("DELETE FROM price_history WHERE card_id = ?", (card_id,))

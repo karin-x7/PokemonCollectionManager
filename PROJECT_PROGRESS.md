@@ -3,14 +3,134 @@
 > Synchronisationsdatei zwischen mehreren PCs. Enthält jederzeit den aktuellen
 > Entwicklungsstand. Wird nach **jedem** Entwicklungsschritt aktualisiert.
 
-**Letzter Schritt:** Nachbesserung — „Zusätze" → „Extra" umbenannt, `Variante`
-komplett entfernt (Migration v3); Versuch, falsch verlinkte Cardmarket-
-Produktseiten bei Vintage-Sets automatisch zu korrigieren, wieder verworfen
-(siehe „Verworfener Versuch" unten)
+**Letzter Schritt:** UI/Design-Überarbeitung — dunkles Navy-Theme mit
+orange/gelben Akzenten, neues Preisverlauf-Dock (Chart + %-Änderung +
+Verlaufsliste + Reset), vergrößerte Kartenansicht, App-Icon, Suchen-Button,
+plus mehrere vom Nutzer live gefundene Nachbesserungen (siehe unten)
 **Datum:** 2026-07-04
 **Version:** 0.1.0
-**TestStatus:** ✅ 245 Tests grün (`pytest`) · ✅ Migration v3 gegen echte
-Nutzerdaten verifiziert und angewendet
+**TestStatus:** ✅ 253 Tests grün (`pytest`) · ✅ `compileall` sauber ·
+✅ Screenshot-Check + Nutzer hat mehrere Runden live im laufenden Programm
+bestätigt/korrigiert
+
+---
+
+## Nachbesserungen zur UI-Überarbeitung (2026-07-04, vom Nutzer live gefunden)
+
+Nach dem ersten Durchlauf hat der Nutzer im laufenden Programm mehrere
+konkrete Probleme gefunden, die im Offscreen-Screenshot nicht auffielen:
+
+1. **Kartenbild nicht zugeschnitten + Felder ragen ins Bild:**
+   `CardArtworkView` malte vorher einen Panel-Hintergrund über das komplette
+   (oft sehr hohe) Widget, mit `KeepAspectRatio` (Letterboxing) für das Bild
+   — sichtbar leerer Rand oben/unten. Behoben durch eine card-shaped "Bühne"
+   mit echtem Kartenseitenverhältnis (2,5:3,5), zentriert im Widget, und
+   `KeepAspectRatioByExpanding` + Clipping (Crop-to-fill statt Letterbox).
+2. **Diagramm unübersichtlich:** `€`-Zeichen im Achsen-Tick-Format rendert im
+   Chart-Font als „?"; Datumsbeschriftungen („03...03...") überlappten bei
+   mehr als ein paar Datenpunkten. Behoben: Einheit nur noch im Achsentitel,
+   kürzeres Datumsformat, `setTickCount` begrenzt auf max. 6, Labels um -45°
+   gekippt, Datenpunkte jetzt als sichtbare Marker, Chart-Mindesthöhe erhöht.
+3. **Verlaufsliste brauchte horizontales Scrollen:** Einzeilige, mit „·"
+   verbundene Einträge waren zu lang für die Dock-Breite. Behoben durch
+   zweizeilige Einträge (Datum+Preis / Qualität) mit Wortumbruch, Dock
+   verbreitert (300→380px). *(Ein Zwischenversuch, das Dock zusätzlich in
+   eine `QScrollArea` zu packen, hat das Chart-Rendering kaputt gemacht —
+   wieder entfernt.)*
+4. **Filterleiste und Detail-Buttons abgeschnitten:** Eine einzige Zeile mit
+   Suche + 3 Dropdowns + 2 Preisfeldern + Checkbox + Button (Filterleiste)
+   bzw. zwei lange Button-Texte nebeneinander (Detail-Panel) passten bei
+   normaler Fensterbreite nicht — Text wurde abgeschnitten statt umzubrechen.
+   Behoben: Filterleiste jetzt zweizeilig (`card_filter_bar.py`); die beiden
+   Detail-Buttons stehen jetzt untereinander statt nebeneinander
+   (`card_detail_panel.py`).
+5. **Preisverlauf-Dock verdrängte die drei Spalten:** `QDockWidget` nimmt
+   seinen Platz aus dem Zentral-Widget statt zu überlagern — ohne
+   Fenster-Vergrößerung quetschte das Öffnen des Docks Sammlungen/Karten/
+   Details zusammen (abgeschnittener Text). Behoben: `MainWindow` vergrößert
+   das Fenster beim Öffnen um genau die Dock-Breite (380px) und verkleinert
+   es beim Schließen wieder.
+6. **Button war Einbahnstraße:** "Preisverlauf anzeigen" öffnete das Dock,
+   hatte aber keine Möglichkeit, es über denselben Button wieder zu
+   schließen. Jetzt ein echter Umschalter (`set_history_panel_visible()`,
+   an `QDockWidget.visibilityChanged` gehängt) — Button-Text wechselt
+   zwischen "anzeigen"/"ausblenden", bleibt auch korrekt, wenn das Dock über
+   sein eigenes Schließen-Symbol (nicht den Button) geschlossen wird.
+7. **Kartenbild zu dominant / Abstände zu Feldern/Buttons zu knapp:**
+   Kartenbild-Maximalhöhe auf 420px begrenzt (vorher unbegrenzt), Abstand
+   zwischen Bild↔Feldern und Feldern↔Buttons auf einheitlich 20px erhöht.
+
+**Tests:** 253 grün, u. a. neuer Toggle-Test in `test_ui_smoke.py`
+(`test_history_button_toggles_dock_and_window_width`).
+
+---
+
+## UI/Design-Überarbeitung (2026-07-04)
+
+Auf Nutzerwunsch: dunkles/dunkelblaues, modernes Theme mit orange/gelben
+Akzenten; kein Text soll durch Fenstergröße verdeckt werden; die Kartenansicht
+soll die Karte groß/zentriert zeigen statt in leerem Raum zu wirken; das
+Preisdiagramm wandert in ein einklappbares Panel rechts mit Verlaufsliste,
+%-Änderung und Reset (mit Sicherheitsabfrage); ein "Suchen"-Button für die
+Toolbar-Katalogsuche; ein neues App-Icon.
+
+Geklärt mit dem Nutzer vorab: Light/Dark-Umschalter entfällt (nur noch ein
+dunkles Theme); der Suchen-Button kommt an die Toolbar-Katalogsuche (die
+Filterleiste sucht schon live); Historie-Reset leert nur Diagramm/Verlauf,
+der aktuell angezeigte Preis bleibt stehen.
+
+**Umgesetzt:**
+- `app/ui/theme.py`: `Theme`-Enum/Light-Palette entfernt, eine einzige dunkle
+  Palette (Fenster `#10141c`, Panel `#1a2233`, Akzent orange `#ff9d45`,
+  sekundär gelb `#ffd166`). QSS modernisiert (Rundungen, Hover-States,
+  Akzent-Fokusrahmen, neue `#ArtworkStage`/`#Danger`/`#PercentPositive`/
+  `#PercentNegative`-Selektoren).
+- `app/ui/main_window.py`: Theme-Toggle-Button entfernt; Mindestfenstergröße
+  auf 1100×700 erhöht plus `setMinimumWidth` auf allen drei Splitter-Panels,
+  damit ein normales Verkleinern nie mehr Text verdeckt (nur bewusstes
+  Verkleinern unter das Minimum); neuer "Suchen"-Button neben der
+  Toolbar-Katalogsuche (gleicher Signalpfad wie Enter); App-Icon gesetzt.
+- `app/ui/widgets/card_artwork_view.py`: deutlich vergrößert (min. 360px)
+  und mit eigenem `#ArtworkStage`-Hintergrund (Panel + Akzent-Rahmen) versehen,
+  damit die Karte sichtbar auf einer "Bühne" steht statt in leerem Raum.
+- `app/ui/widgets/card_detail_panel.py`: eingebettetes Preisdiagramm entfernt
+  (wandert komplett ins neue Dock); neuer "Preisverlauf anzeigen"-Button.
+  Alte `app/ui/widgets/price_history_chart.py` (jetzt unbenutzt) gelöscht.
+- **Neu:** `app/ui/widgets/price_history_dock.py` (`PriceHistoryDock`,
+  `QDockWidget`, rechts andockbar): redesignter Chart mit Achsentiteln
+  ("Datum"/"Preis (€)") und theme-farbigen Gridlines/Linie; %-Änderung
+  zum vorherigen Preis darunter (grün bei positiv, rot bei negativ); Liste
+  der letzten 10 Preis-Updates (neueste zuerst); "Historie zurücksetzen"-
+  Button mit `QMessageBox`-Sicherheitsabfrage (löscht nur den Verlauf,
+  nicht den aktuell angezeigten Preis der Karte).
+- `app/database/repositories/price_repository.py`: neue
+  `delete_for_card(card_id)` (Hard-Delete, kein Schema-Change nötig).
+- `app/ui/controllers/card_controller.py`: neuer optionaler
+  `history_dock`-Parameter; befüllt/leert das Dock an denselben Stellen, an
+  denen bisher `show_price_history`/`show_empty` am Detail-Panel liefen;
+  neuer `_on_history_reset`-Handler ruft `PriceRepository.delete_for_card`
+  auf und aktualisiert das Dock, falls die betroffene Karte noch ausgewählt
+  ist.
+- **App-Icon:** einmaliges Generierungsskript (nicht Teil der Runtime-
+  Abhängigkeiten) zeichnet mit `QPainter`/`QImageWriter` (beides bereits in
+  PySide6 enthalten, keine neue Abhängigkeit) einen stilisierten,
+  orange/gelben Kartenfächer auf dunklem Grund — bewusst kein Pokémon-Logo/
+  Charakter (Marken-/Urheberrecht). Gespeichert als
+  `app/resources/icon.ico`, in `app/ui/app.py` (App-Icon) und
+  `app/ui/main_window.py` (Fenster-Icon) gesetzt.
+
+**Tests:** 252 grün — u. a. neue `tests/test_price_history_dock.py`,
+Erweiterungen in `tests/test_price_repository.py` (`delete_for_card`) und
+`tests/test_card_controller.py` (Dock-Befüllung + Reset-Flow); alte
+Theme-Toggle-/eingebettete-Chart-Tests entfernt oder umgeschrieben.
+
+**Visuell geprüft:** Screenshot der laufenden App (echte Datenbank, echte
+Venusaur-Karte) bestätigt Layout, Farben und das geöffnete Preisverlauf-Dock
+(Chart mit Achsen, grünes %-Label, Verlaufsliste, roter Reset-Button). Text
+erscheint im Offscreen-Screenshot als Kästchen — bekanntes, bereits
+dokumentiertes Rendering-Artefakt ohne Systemschrift, kein Bug (siehe
+„Bekannte Bugs" unten). Finale Bestätigung auf echtem Bildschirm steht noch
+vom Nutzer aus.
 
 ---
 

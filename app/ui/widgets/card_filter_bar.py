@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLineEdit,
     QPushButton,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -41,54 +42,75 @@ class CardFilterBar(QWidget):
         self._build()
 
     def _build(self) -> None:
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        # Two rows instead of one long one: cramming search + three combos +
+        # two price fields + a checkbox + a button into a single row forced
+        # every control below its natural width once the panel wasn't very
+        # wide, truncating their text/placeholders.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(6)
+
+        top_row = QHBoxLayout()
+        top_row.setSpacing(6)
+        outer.addLayout(top_row)
 
         self._search = QLineEdit()
         self._search.setPlaceholderText("Suche (Name, Set, Nummer, Notizen) …")
         self._search.setClearButtonEnabled(True)
+        self._search.setMinimumWidth(160)
         self._search.textChanged.connect(self._emit_filter_changed)
-        layout.addWidget(self._search, stretch=2)
+        top_row.addWidget(self._search, stretch=2)
 
         self._set_combo = QComboBox()
         self._set_combo.addItem(_ALL)
+        self._set_combo.setMinimumWidth(110)
         self._set_combo.currentIndexChanged.connect(self._emit_filter_changed)
-        layout.addWidget(self._set_combo, stretch=1)
+        top_row.addWidget(self._set_combo, stretch=1)
 
         self._language_combo = QComboBox()
         self._language_combo.addItem(_ALL)
         for language in Language:
             self._language_combo.addItem(language.label, language)
+        self._language_combo.setMinimumWidth(110)
         self._language_combo.currentIndexChanged.connect(self._emit_filter_changed)
-        layout.addWidget(self._language_combo, stretch=1)
+        top_row.addWidget(self._language_combo, stretch=1)
 
         self._condition_combo = QComboBox()
         self._condition_combo.addItem(_ALL)
         for condition in Condition:
             self._condition_combo.addItem(condition.label, condition)
+        self._condition_combo.setMinimumWidth(110)
         self._condition_combo.currentIndexChanged.connect(self._emit_filter_changed)
-        layout.addWidget(self._condition_combo, stretch=1)
+        top_row.addWidget(self._condition_combo, stretch=1)
+
+        bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(6)
+        outer.addLayout(bottom_row)
 
         self._min_price = QLineEdit()
         self._min_price.setPlaceholderText("Preis von")
-        self._min_price.setMaximumWidth(80)
+        self._min_price.setMinimumWidth(90)
+        self._min_price.setMaximumWidth(110)
         self._min_price.textChanged.connect(self._emit_filter_changed)
-        layout.addWidget(self._min_price)
+        bottom_row.addWidget(self._min_price)
 
         self._max_price = QLineEdit()
         self._max_price.setPlaceholderText("bis")
-        self._max_price.setMaximumWidth(80)
+        self._max_price.setMinimumWidth(90)
+        self._max_price.setMaximumWidth(110)
         self._max_price.textChanged.connect(self._emit_filter_changed)
-        layout.addWidget(self._max_price)
+        bottom_row.addWidget(self._max_price)
 
         self._all_collections = QCheckBox("Alle Sammlungen")
         self._all_collections.toggled.connect(self.scope_changed)
-        layout.addWidget(self._all_collections)
+        bottom_row.addWidget(self._all_collections)
+
+        bottom_row.addStretch(1)
 
         reset_button = QPushButton("Zurücksetzen")
+        reset_button.setObjectName("Secondary")
         reset_button.clicked.connect(self.reset)
-        layout.addWidget(reset_button)
+        bottom_row.addWidget(reset_button)
 
     # -- Public API ---------------------------------------------------------- #
 

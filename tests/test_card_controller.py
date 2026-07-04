@@ -21,6 +21,7 @@ from app.ui.app import build_application
 from app.ui.controllers.card_controller import CardController
 from app.ui.widgets.card_detail_panel import CardDetailPanel
 from app.ui.widgets.card_list_panel import CardListPanel
+from app.ui.widgets.price_history_dock import PriceHistoryDock
 
 _CATALOG_CARD = CatalogCard(
     external_id="skg-h32",
@@ -175,15 +176,18 @@ def test_selection_changed_minus_one_shows_empty(monkeypatch, controller: CardCo
 
 
 def test_without_price_repository_history_is_left_untouched(
-    monkeypatch, controller: CardController, collection_id: int
+    monkeypatch, qapp, controller: CardController, collection_id: int
 ) -> None:
     # The `controller` fixture builds a CardController with no
-    # price_repository -- showing a card must not try to fetch history.
+    # price_repository -- showing a card must not try to fetch history, even
+    # with a history dock attached.
+    dock = PriceHistoryDock()
+    controller._history_dock = dock
     controller.set_collection(collection_id)
     controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
     card_id = controller._panel.selected_card_id()
     calls = []
-    monkeypatch.setattr(controller._detail_panel, "show_price_history", calls.append)
+    monkeypatch.setattr(dock, "show_history", lambda *a: calls.append(a))
 
     controller._panel.selection_changed.emit(card_id)
 
@@ -197,7 +201,8 @@ def test_showing_a_card_also_shows_its_price_history_when_repository_given(
     prices = PriceRepository(temp_db)
     panel = CardListPanel()
     detail_panel = CardDetailPanel()
-    controller = CardController(panel, detail_panel, service, prices)
+    dock = PriceHistoryDock()
+    controller = CardController(panel, detail_panel, service, prices, history_dock=dock)
     controller.set_collection(collection_id)
     controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
     card_id = controller._panel.selected_card_id()
@@ -210,8 +215,31 @@ def test_showing_a_card_also_shows_its_price_history_when_repository_given(
 
     controller._panel.selection_changed.emit(card_id)
 
-    assert not detail_panel._price_history._chart_view.isHidden()
-    assert detail_panel._price_history._chart.series()[0].count() == 2
+    assert not dock._chart_view.isHidden()
+    assert dock._chart.series()[0].count() == 2
+
+
+def test_history_reset_requested_deletes_records_and_refreshes_dock(
+    qapp, temp_db: Database, collection_id: int
+) -> None:
+    service = CardService(CardRepository(temp_db), image_downloader=lambda _card: None)
+    prices = PriceRepository(temp_db)
+    panel = CardListPanel()
+    detail_panel = CardDetailPanel()
+    dock = PriceHistoryDock()
+    controller = CardController(panel, detail_panel, service, prices, history_dock=dock)
+    controller.set_collection(collection_id)
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
+    card_id = controller._panel.selected_card_id()
+    prices.add_record(PriceRecord(id=None, card_id=card_id, price=10.0))
+    prices.add_record(PriceRecord(id=None, card_id=card_id, price=15.0))
+    controller._panel.selection_changed.emit(card_id)
+
+    dock.history_reset_requested.emit(card_id)
+
+    assert prices.list_for_card(card_id) == []
+    assert dock._chart_view.isHidden()
+    assert dock._history_list.count() == 0
 
 
 # -- Filter / scope wiring (Step 9) ------------------------------------------- #

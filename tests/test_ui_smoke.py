@@ -1,8 +1,8 @@
 """Headless smoke tests for the GUI shell.
 
 These run under Qt's ``offscreen`` platform so they need no display and work in
-CI. They verify the window constructs, exposes the expected structure, and that
-the toolbar intents and theme toggle behave — without asserting pixels.
+CI. They verify the window constructs, exposes the expected structure, and
+that the toolbar intents behave — without asserting pixels.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from PySide6.QtGui import QAction
 from app import config
 from app.ui.app import build_application
 from app.ui.main_window import MainWindow
-from app.ui.theme import Theme, build_stylesheet
+from app.ui.theme import build_stylesheet
 
 
 @pytest.fixture(scope="module")
@@ -26,13 +26,8 @@ def qapp():
     return build_application([])
 
 
-def test_stylesheets_differ_between_themes() -> None:
-    assert build_stylesheet(Theme.LIGHT) != build_stylesheet(Theme.DARK)
-
-
-def test_theme_toggled_is_opposite() -> None:
-    assert Theme.LIGHT.toggled() is Theme.DARK
-    assert Theme.DARK.toggled() is Theme.LIGHT
+def test_stylesheet_is_non_empty() -> None:
+    assert build_stylesheet().strip()
 
 
 def test_main_window_has_three_panels(qapp) -> None:
@@ -43,12 +38,33 @@ def test_main_window_has_three_panels(qapp) -> None:
     assert window.card_detail_panel is not None
 
 
+def test_main_window_has_price_history_dock(qapp) -> None:
+    window = MainWindow()
+    assert window.price_history_dock is not None
+    assert window.price_history_dock.isHidden()
+
+
 def test_toolbar_exposes_core_actions(qapp) -> None:
     window = MainWindow()
     texts = [a.text() for a in window.findChildren(QAction)]
     assert any("Scanner" in t for t in texts)
     assert any("aktualisieren" in t for t in texts)
     assert any("Export" in t for t in texts)
+
+
+def test_search_button_submits_same_as_enter(qapp) -> None:
+    window = MainWindow()
+    # Disconnect the real catalog controller first: it would otherwise make
+    # a real, blocking pokemontcg.io network call in response to the signal
+    # this test triggers below.
+    window.search_submitted.disconnect(window.catalog_search_controller.handle_search)
+    received: list[str] = []
+    window.search_submitted.connect(received.append)
+
+    window._search.setText("xatu")
+    window._search_button.click()
+
+    assert received == ["xatu"]
 
 
 def test_update_prices_action_emits_signal(qapp) -> None:
@@ -59,8 +75,21 @@ def test_update_prices_action_emits_signal(qapp) -> None:
     assert received == [True]
 
 
-def test_theme_toggle_changes_action_label(qapp) -> None:
-    window = MainWindow(theme=Theme.LIGHT)
-    before = window._act_theme.text()
-    window.toggle_theme()
-    assert window._act_theme.text() != before
+def test_history_button_toggles_dock_and_window_width(qapp) -> None:
+    window = MainWindow()
+    # QDockWidget.visibilityChanged only fires once the top-level window is
+    # actually shown (even under the offscreen platform) -- without this,
+    # the dock's own show()/hide() calls never reach CardDetailPanel's
+    # button-label sync below.
+    window.show()
+    width_before = window.width()
+
+    window.card_detail_panel.history_panel_requested.emit(1)
+    assert not window.price_history_dock.isHidden()
+    assert window.width() == width_before + 380
+    assert window.card_detail_panel._history_button.text() == "Preisverlauf ausblenden"
+
+    window.card_detail_panel.history_panel_requested.emit(1)
+    assert window.price_history_dock.isHidden()
+    assert window.width() == width_before
+    assert window.card_detail_panel._history_button.text() == "Preisverlauf anzeigen"

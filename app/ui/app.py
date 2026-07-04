@@ -8,16 +8,19 @@ loop.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from app import config
 from app.database.connection import Database
 from app.logging_config import get_logger
 from app.ui.main_window import MainWindow
-from app.ui.theme import Theme
 
 logger = get_logger(__name__)
+
+_ICON_PATH = Path(__file__).resolve().parent.parent / "resources" / "icon.ico"
 
 
 def build_application(argv: list[str] | None = None) -> QApplication:
@@ -30,21 +33,22 @@ def build_application(argv: list[str] | None = None) -> QApplication:
     app.setApplicationVersion(config.APP_VERSION)
     app.setOrganizationName("PokemonCollectionManager")
     app.setStyle("Fusion")  # consistent base look before our style sheet
+    if _ICON_PATH.exists():
+        app.setWindowIcon(QIcon(str(_ICON_PATH)))
     return app
 
 
-def run_gui(database: Database | None = None, theme: Theme = Theme.LIGHT) -> int:
+def run_gui(database: Database | None = None) -> int:
     """Launch the GUI and block until the window is closed.
 
     Args:
         database: Initialised database (passed through for later steps).
-        theme: Initial colour theme.
 
     Returns:
         The Qt event-loop exit code.
     """
     app = build_application()
-    window = MainWindow(database=database, theme=theme)
+    window = MainWindow(database=database)
     window.show()
     logger.info("GUI started.")
     return app.exec()

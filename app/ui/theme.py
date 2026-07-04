@@ -1,25 +1,13 @@
-"""Application theming: light and dark mode expressed as Qt style sheets.
+"""Application theming: a single dark navy style sheet.
 
 The GUI is styled centrally here so individual widgets stay free of colour
-literals. A :class:`Theme` value maps to a colour palette, which is rendered
-into a Qt style sheet (QSS) and applied to the whole application.
+literals. :func:`build_stylesheet` renders the :data:`PALETTE` into a Qt
+style sheet (QSS) that's applied to the whole application.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
-
-
-class Theme(str, Enum):
-    """Available colour themes."""
-
-    LIGHT = "light"
-    DARK = "dark"
-
-    def toggled(self) -> "Theme":
-        """Return the opposite theme."""
-        return Theme.DARK if self is Theme.LIGHT else Theme.LIGHT
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,50 +16,42 @@ class Palette:
 
     window: str
     panel: str
+    panel_raised: str
     text: str
     muted: str
     border: str
     accent: str
     accent_hover: str
+    accent_soft: str
+    accent_secondary: str
     selection: str
     selection_text: str
+    positive: str
+    negative: str
 
 
-_LIGHT = Palette(
-    window="#f4f5f8",
-    panel="#ffffff",
-    text="#1f2430",
-    muted="#6b7280",
-    border="#e2e5ea",
-    accent="#2f6fed",
-    accent_hover="#2559c9",
-    selection="#e6efff",
-    selection_text="#12203a",
+#: Dark navy background, warm orange/yellow accents — the app's only theme.
+PALETTE = Palette(
+    window="#10141c",
+    panel="#1a2233",
+    panel_raised="#212a3d",
+    text="#e8ecf5",
+    muted="#8b95ac",
+    border="#2b3550",
+    accent="#ff9d45",
+    accent_hover="#ffb066",
+    accent_soft="#3a2e22",
+    accent_secondary="#ffd166",
+    selection="#3a3320",
+    selection_text="#ffe8c2",
+    positive="#5bd88a",
+    negative="#ff6b6b",
 )
 
-_DARK = Palette(
-    window="#1e2027",
-    panel="#262a33",
-    text="#e6e8ee",
-    muted="#9aa2b1",
-    border="#333a46",
-    accent="#4c8dff",
-    accent_hover="#3f78e0",
-    selection="#2f3b52",
-    selection_text="#eaf1ff",
-)
 
-_PALETTES: dict[Theme, Palette] = {Theme.LIGHT: _LIGHT, Theme.DARK: _DARK}
-
-
-def palette_for(theme: Theme) -> Palette:
-    """Return the colour palette backing a theme."""
-    return _PALETTES[theme]
-
-
-def build_stylesheet(theme: Theme) -> str:
-    """Render the full application style sheet for a theme."""
-    p = palette_for(theme)
+def build_stylesheet() -> str:
+    """Render the application's single dark style sheet."""
+    p = PALETTE
     return f"""
     QMainWindow, QWidget {{
         background-color: {p.window};
@@ -82,11 +62,17 @@ def build_stylesheet(theme: Theme) -> str:
     QWidget#Panel {{
         background-color: {p.panel};
         border: 1px solid {p.border};
-        border-radius: 10px;
+        border-radius: 12px;
+    }}
+    QWidget#ArtworkStage {{
+        background-color: {p.panel_raised};
+        border: 1px solid {p.accent};
+        border-radius: 14px;
     }}
     QLabel#PanelHeader {{
         font-size: 12pt;
-        font-weight: 600;
+        font-weight: 700;
+        color: {p.accent_secondary};
         padding: 4px 2px 8px 2px;
         border: none;
         background: transparent;
@@ -106,6 +92,20 @@ def build_stylesheet(theme: Theme) -> str:
         border: none;
         background: transparent;
     }}
+    QLabel#PercentPositive {{
+        color: {p.positive};
+        font-weight: 700;
+        font-size: 12pt;
+        border: none;
+        background: transparent;
+    }}
+    QLabel#PercentNegative {{
+        color: {p.negative};
+        font-weight: 700;
+        font-size: 12pt;
+        border: none;
+        background: transparent;
+    }}
     QToolBar {{
         background-color: {p.panel};
         border-bottom: 1px solid {p.border};
@@ -120,6 +120,7 @@ def build_stylesheet(theme: Theme) -> str:
     }}
     QToolBar QToolButton:hover {{
         background-color: {p.selection};
+        color: {p.accent_secondary};
     }}
     QLineEdit {{
         background-color: {p.window};
@@ -127,18 +128,30 @@ def build_stylesheet(theme: Theme) -> str:
         border-radius: 8px;
         padding: 6px 10px;
         selection-background-color: {p.accent};
-        selection-color: #ffffff;
+        selection-color: #1a1408;
     }}
     QLineEdit:focus {{
         border: 1px solid {p.accent};
     }}
+    QComboBox {{
+        background-color: {p.window};
+        border: 1px solid {p.border};
+        border-radius: 8px;
+        padding: 6px 10px;
+    }}
+    QComboBox:focus, QComboBox:on {{
+        border: 1px solid {p.accent};
+    }}
+    QCheckBox {{
+        spacing: 8px;
+    }}
     QPushButton {{
         background-color: {p.accent};
-        color: #ffffff;
+        color: #1a1408;
         border: none;
         border-radius: 8px;
         padding: 8px 14px;
-        font-weight: 600;
+        font-weight: 700;
     }}
     QPushButton:hover {{
         background-color: {p.accent_hover};
@@ -153,7 +166,15 @@ def build_stylesheet(theme: Theme) -> str:
         border: 1px solid {p.accent};
     }}
     QPushButton#Secondary:hover {{
-        background-color: {p.selection};
+        background-color: {p.accent_soft};
+    }}
+    QPushButton#Danger {{
+        background-color: transparent;
+        color: {p.negative};
+        border: 1px solid {p.negative};
+    }}
+    QPushButton#Danger:hover {{
+        background-color: #3a1f1f;
     }}
     QListWidget, QTableWidget, QTableView {{
         background-color: {p.panel};
@@ -177,7 +198,7 @@ def build_stylesheet(theme: Theme) -> str:
         color: {p.muted};
         padding: 6px 8px;
         border: none;
-        border-bottom: 1px solid {p.border};
+        border-bottom: 1px solid {p.accent};
         font-weight: 600;
     }}
     QTableWidget {{
@@ -201,7 +222,21 @@ def build_stylesheet(theme: Theme) -> str:
         border-radius: 5px;
         min-height: 24px;
     }}
+    QScrollBar::handle:vertical:hover {{
+        background: {p.accent};
+    }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
         height: 0;
+    }}
+    QDockWidget {{
+        color: {p.text};
+        titlebar-close-icon: none;
+    }}
+    QDockWidget::title {{
+        background-color: {p.panel};
+        padding: 8px 10px;
+        font-weight: 700;
+        color: {p.accent_secondary};
+        border-bottom: 1px solid {p.border};
     }}
     """

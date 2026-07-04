@@ -84,3 +84,31 @@ def test_list_for_card_returns_only_its_own_records(
     prices = [r.price for r in repo.list_for_card(card_id)]
 
     assert prices == [10.0]
+
+
+def test_delete_for_card_removes_only_its_own_records(
+    repo: PriceRepository, temp_db: Database, card_id: int
+) -> None:
+    collection_id = CollectionRepository(temp_db).create("Vintage").id
+    other_card_id = CardRepository(temp_db).create(
+        Card(
+            id=None,
+            collection_id=collection_id,
+            name="Charizard",
+            language=Language.ENGLISH,
+            condition=Condition.NEAR_MINT,
+        )
+    ).id
+    repo.add_record(PriceRecord(id=None, card_id=card_id, price=10.0))
+    repo.add_record(PriceRecord(id=None, card_id=other_card_id, price=99.0))
+
+    repo.delete_for_card(card_id)
+
+    assert repo.list_for_card(card_id) == []
+    assert [r.price for r in repo.list_for_card(other_card_id)] == [99.0]
+
+
+def test_delete_for_card_with_no_history_is_a_no_op(repo: PriceRepository, card_id: int) -> None:
+    repo.delete_for_card(card_id)  # must not raise
+
+    assert repo.list_for_card(card_id) == []

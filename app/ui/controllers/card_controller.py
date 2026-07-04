@@ -23,6 +23,7 @@ from app.services.card_service import CardService
 from app.services.exceptions import ServiceError
 from app.ui.widgets.card_detail_panel import CardDetailPanel
 from app.ui.widgets.card_list_panel import CardListPanel
+from app.ui.widgets.price_history_dock import PriceHistoryDock
 
 logger = get_logger(__name__)
 
@@ -36,6 +37,7 @@ class CardController(QObject):
         detail_panel: CardDetailPanel,
         service: CardService,
         price_repository: PriceRepository | None = None,
+        history_dock: PriceHistoryDock | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
@@ -43,6 +45,7 @@ class CardController(QObject):
         self._detail_panel = detail_panel
         self._service = service
         self._prices = price_repository
+        self._history_dock = history_dock
         self._collection_id: int | None = None
         self._filter_fields = CardFilter()
         self._search_all_collections = False
@@ -53,6 +56,8 @@ class CardController(QObject):
         panel.delete_requested.connect(self._on_delete)
         panel.filter_bar.filter_changed.connect(self._on_filter_changed)
         panel.filter_bar.scope_changed.connect(self._on_scope_changed)
+        if history_dock is not None:
+            history_dock.history_reset_requested.connect(self._on_history_reset)
 
     def set_collection(self, collection_id: int | None) -> None:
         """React to a new collection being selected (or none, id == -1/None)."""
@@ -70,6 +75,8 @@ class CardController(QObject):
         if not self._search_all_collections and self._collection_id is None:
             self._panel.set_cards([])
             self._detail_panel.show_empty()
+            if self._history_dock is not None:
+                self._history_dock.show_empty()
             return
         scope_id = None if self._search_all_collections else self._collection_id
         active_filter = replace(self._filter_fields, collection_id=scope_id)
@@ -121,6 +128,8 @@ class CardController(QObject):
     def _on_selection_changed(self, card_id: int) -> None:
         if card_id == -1:
             self._detail_panel.show_empty()
+            if self._history_dock is not None:
+                self._history_dock.show_empty()
             return
         self._show_card(self._service.get_card(card_id))
 
@@ -128,10 +137,21 @@ class CardController(QObject):
         selected_id = self._panel.selected_card_id()
         if selected_id is None:
             self._detail_panel.show_empty()
+            if self._history_dock is not None:
+                self._history_dock.show_empty()
         else:
             self._show_card(self._service.get_card(selected_id))
 
     def _show_card(self, card: Card) -> None:
         self._detail_panel.show_card(card)
-        if self._prices is not None:
-            self._detail_panel.show_price_history(self._prices.list_for_card(card.id))
+        if self._history_dock is not None and self._prices is not None:
+            self._history_dock.show_history(card, self._prices.list_for_card(card.id))
+
+    def _on_history_reset(self, card_id: int) -> None:
+        if self._prices is None:
+            return
+        self._prices.delete_for_card(card_id)
+        logger.info("Price history reset for card id=%s", card_id)
+        selected_id = self._panel.selected_card_id()
+        if selected_id == card_id:
+            self._show_card(self._service.get_card(card_id))

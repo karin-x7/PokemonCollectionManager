@@ -1,21 +1,24 @@
 """The application main window.
 
 Assembles the three-column layout (collections · card list · card details),
-the top toolbar (search · scanner · price update · export) and the light/dark
-theme toggle. The window itself holds no business logic: it builds the panels
-and hands them to controllers (e.g. :class:`CollectionController`) that talk
-to the services layer. Toolbar intents without a wired controller yet still
+the top toolbar (search · scanner · price update · export) and the dark
+theme. The window itself holds no business logic: it builds the panels and
+hands them to controllers (e.g. :class:`CollectionController`) that talk to
+the services layer. Toolbar intents without a wired controller yet still
 just produce a status-bar message.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction, QCloseEvent
+from PySide6.QtGui import QAction, QCloseEvent, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QLineEdit,
     QMainWindow,
+    QPushButton,
     QSplitter,
     QStatusBar,
     QStyle,
@@ -38,10 +41,25 @@ from app.ui.controllers.card_controller import CardController
 from app.ui.controllers.catalog_search_controller import CatalogSearchController
 from app.ui.controllers.collection_controller import CollectionController
 from app.ui.controllers.price_controller import PriceController
-from app.ui.theme import Theme, build_stylesheet
+from app.ui.theme import build_stylesheet
 from app.ui.widgets import CardDetailPanel, CardListPanel, CollectionPanel
+from app.ui.widgets.price_history_dock import PriceHistoryDock
 
 logger = get_logger(__name__)
+
+_ICON_PATH = Path(__file__).resolve().parent.parent / "resources" / "icon.ico"
+
+#: Panel minimum widths (px) so a normal resize can never squeeze a column's
+#: text/controls out of view -- shrinking below the window's own minimum
+#: size is still possible, but that's an explicit choice, not silent clipping.
+_COLLECTION_PANEL_MIN_WIDTH = 200
+_CARD_LIST_PANEL_MIN_WIDTH = 420
+_CARD_DETAIL_PANEL_MIN_WIDTH = 320
+
+#: Must match PriceHistoryDock's own setMinimumWidth() -- how much wider the
+#: window grows/shrinks when the history dock is toggled on/off, so it adds
+#: room on the side instead of squeezing the existing three-column layout.
+_HISTORY_DOCK_WIDTH = 380
 
 
 class MainWindow(QMainWindow):
@@ -52,7 +70,7 @@ class MainWindow(QMainWindow):
     update_prices_requested = Signal()
     export_requested = Signal()
 
-    def __init__(self, database: Database | None = None, theme: Theme = Theme.LIGHT) -> None:
+    def __init__(self, database: Database | None = None) -> None:
         super().__init__()
         self._owns_database = database is None
         if database is None:
@@ -62,17 +80,20 @@ class MainWindow(QMainWindow):
             database = Database(":memory:")
             database.initialize()
         self._database = database
-        self._theme = theme
 
         self.setWindowTitle(f"{config.APP_NAME}")
-        self.resize(1240, 780)
-        self.setMinimumSize(960, 600)
+        if _ICON_PATH.exists():
+            self.setWindowIcon(QIcon(str(_ICON_PATH)))
+        self.resize(1280, 820)
+        self.setMinimumSize(1100, 700)
 
         self._build_toolbar()
         self._build_central()
         self._build_statusbar()
         self._connect_placeholder_feedback()
-        self.apply_theme(theme)
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(build_stylesheet())
 
     # -- Construction ----------------------------------------------------- #
 
@@ -85,10 +106,12 @@ class MainWindow(QMainWindow):
         self._search.setPlaceholderText("Karten durchsuchen  (z. B. „xatu skyridge holo“)")
         self._search.setClearButtonEnabled(True)
         self._search.setMaximumWidth(420)
-        self._search.returnPressed.connect(
-            lambda: self.search_submitted.emit(self._search.text().strip())
-        )
+        self._search.returnPressed.connect(self._submit_search)
         toolbar.addWidget(self._search)
+
+        self._search_button = QPushButton("Suchen")
+        self._search_button.clicked.connect(self._submit_search)
+        toolbar.addWidget(self._search_button)
         toolbar.addSeparator()
 
         style = self.style()
@@ -110,20 +133,21 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self._act_update)
         toolbar.addAction(self._act_export)
 
-        # Push the theme toggle to the far right.
-        spacer = QWidget()
-        spacer.setSizePolicy(spacer.sizePolicy().horizontalPolicy().Expanding,
-                             spacer.sizePolicy().verticalPolicy().Preferred)
-        toolbar.addWidget(spacer)
-
-        self._act_theme = QAction("🌙  Dunkelmodus", self)
-        self._act_theme.triggered.connect(self.toggle_theme)
-        toolbar.addAction(self._act_theme)
-
     def _build_central(self) -> None:
         self.collection_panel = CollectionPanel()
         self.card_list_panel = CardListPanel()
         self.card_detail_panel = CardDetailPanel()
+        self.collection_panel.setMinimumWidth(_COLLECTION_PANEL_MIN_WIDTH)
+        self.card_list_panel.setMinimumWidth(_CARD_LIST_PANEL_MIN_WIDTH)
+        self.card_detail_panel.setMinimumWidth(_CARD_DETAIL_PANEL_MIN_WIDTH)
+
+        self.price_history_dock = PriceHistoryDock(self)
+        self.price_history_dock.hide()
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.price_history_dock)
+        self.card_detail_panel.history_panel_requested.connect(self._toggle_history_dock)
+        self.price_history_dock.visibilityChanged.connect(
+            self.card_detail_panel.set_history_panel_visible
+        )
 
         collection_service = CollectionService(CollectionRepository(self._database))
         self.collection_controller = CollectionController(
@@ -136,6 +160,7 @@ class MainWindow(QMainWindow):
             self.card_detail_panel,
             card_service,
             PriceRepository(self._database),
+            history_dock=self.price_history_dock,
             parent=self,
         )
 
@@ -205,20 +230,21 @@ class MainWindow(QMainWindow):
         """Show a transient status-bar message."""
         self.statusBar().showMessage(message, 5000)
 
-    def toggle_theme(self) -> None:
-        """Switch between light and dark mode."""
-        self.apply_theme(self._theme.toggled())
+    def _submit_search(self) -> None:
+        self.search_submitted.emit(self._search.text().strip())
 
-    def apply_theme(self, theme: Theme) -> None:
-        """Apply a theme to the whole application."""
-        self._theme = theme
-        app = QApplication.instance()
-        if app is not None:
-            app.setStyleSheet(build_stylesheet(theme))
-        self._act_theme.setText(
-            "☀  Hellmodus" if theme is Theme.DARK else "🌙  Dunkelmodus"
-        )
-        logger.debug("Theme applied: %s", theme.value)
+    def _toggle_history_dock(self, card_id: int) -> None:  # noqa: ARG002 -- dock content already synced by CardController
+        # A QDockWidget takes its space out of the central widget rather
+        # than overlaying it -- without growing the window by the same
+        # amount, showing the dock would squeeze the three-column layout
+        # (and its text) instead of just adding room on the side.
+        if self.price_history_dock.isVisible():
+            self.price_history_dock.hide()
+            self.resize(self.width() - _HISTORY_DOCK_WIDTH, self.height())
+        else:
+            self.price_history_dock.show()
+            self.price_history_dock.raise_()
+            self.resize(self.width() + _HISTORY_DOCK_WIDTH, self.height())
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 — Qt override
         """Close the database if this window created it itself."""
