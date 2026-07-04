@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction, QCloseEvent, QIcon
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QLineEdit,
@@ -56,8 +56,8 @@ _ICON_PATH = Path(__file__).resolve().parent.parent / "resources" / "icon.ico"
 #: Panel minimum widths (px) so a normal resize can never squeeze a column's
 #: text/controls out of view -- shrinking below the window's own minimum
 #: size is still possible, but that's an explicit choice, not silent clipping.
-_COLLECTION_PANEL_MIN_WIDTH = 200
-_CARD_LIST_PANEL_MIN_WIDTH = 420
+_COLLECTION_PANEL_MIN_WIDTH = 160
+_CARD_LIST_PANEL_MIN_WIDTH = 480
 _CARD_DETAIL_PANEL_MIN_WIDTH = 320
 
 #: Must match PriceHistoryDock's own setMinimumWidth() -- how much wider the
@@ -88,7 +88,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{config.APP_NAME}")
         if _ICON_PATH.exists():
             self.setWindowIcon(QIcon(str(_ICON_PATH)))
-        self.resize(1280, 820)
+        self.resize(1360, 820)
         self.setMinimumSize(1100, 700)
 
         self._build_toolbar()
@@ -119,6 +119,28 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
 
         style = self.style()
+
+        # Navigation between the two main views. The QTabWidget's own tab
+        # bar is hidden (see _build_central) so this is the only way to
+        # switch -- placed here since these toolbar buttons used to do
+        # nothing else useful at a glance. Text labels, not icons -- a
+        # standard-icon pair here wasn't obviously "Karten" vs. "Statistik"
+        # at a glance.
+        self._act_tab_cards = QAction("Karten", self)
+        self._act_tab_stats = QAction("Statistik", self)
+        self._act_tab_cards.setCheckable(True)
+        self._act_tab_stats.setCheckable(True)
+        self._act_tab_cards.setChecked(True)
+        tab_nav_group = QActionGroup(self)
+        tab_nav_group.setExclusive(True)
+        tab_nav_group.addAction(self._act_tab_cards)
+        tab_nav_group.addAction(self._act_tab_stats)
+        self._act_tab_cards.triggered.connect(lambda: self._switch_central_tab(0))
+        self._act_tab_stats.triggered.connect(lambda: self._switch_central_tab(1))
+        toolbar.addAction(self._act_tab_cards)
+        toolbar.addAction(self._act_tab_stats)
+        toolbar.addSeparator()
+
         self._act_scan = QAction(
             style.standardIcon(QStyle.StandardPixmap.SP_ComputerIcon), "Scanner", self
         )
@@ -186,10 +208,6 @@ class MainWindow(QMainWindow):
             )
             return service, thread_database
 
-        self.price_controller = PriceController(
-            self, self.card_detail_panel, open_price_service, self.card_controller, parent=self
-        )
-
         self.statistics_panel = StatisticsPanel()
         statistics_service = StatisticsService(
             card_service, collection_service, PriceRepository(self._database)
@@ -198,6 +216,16 @@ class MainWindow(QMainWindow):
             self.statistics_panel, statistics_service, parent=self
         )
 
+        self.price_controller = PriceController(
+            self,
+            self.card_detail_panel,
+            open_price_service,
+            self.card_controller,
+            statistics_controller=self.statistics_controller,
+            parent=self,
+        )
+        self.statistics_panel.price_lookup_requested.connect(self.price_controller.start_lookup)
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.collection_panel)
         splitter.addWidget(self.card_list_panel)
@@ -205,13 +233,17 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 5)
         splitter.setStretchFactor(2, 3)
-        splitter.setSizes([230, 620, 360])
+        splitter.setSizes([170, 730, 360])
         splitter.setContentsMargins(10, 10, 10, 10)
         splitter.setHandleWidth(10)
 
         tabs = QTabWidget()
         tabs.addTab(splitter, "Karten")
         tabs.addTab(self.statistics_panel, "Statistiken")
+        # Navigated exclusively via the toolbar buttons above (_act_tab_cards/
+        # _act_tab_stats) -- the tab bar itself would just be a redundant
+        # second way to do the same thing.
+        tabs.tabBar().hide()
         tabs.currentChanged.connect(self._on_central_tab_changed)
         self.setCentralWidget(tabs)
 
@@ -250,12 +282,22 @@ class MainWindow(QMainWindow):
     def _submit_search(self) -> None:
         self.search_submitted.emit(self._search.text().strip())
 
+    def _switch_central_tab(self, index: int) -> None:
+        self.centralWidget().setCurrentIndex(index)
+
     def _on_central_tab_changed(self, index: int) -> None:
         # Recomputed only when the tab actually becomes active -- statistics
         # aren't a real-time feature, so there's no need to keep them in
         # sync while the user is on the "Karten" tab.
         if self.centralWidget().tabText(index) == "Statistiken":
             self.statistics_controller.refresh()
+        self._act_tab_cards.setChecked(index == 0)
+        self._act_tab_stats.setChecked(index == 1)
+        # The catalogue search only makes sense on "Karten" -- showing it
+        # while looking at "Statistik" implied it searched something there.
+        is_cards_tab = index == 0
+        self._search.setVisible(is_cards_tab)
+        self._search_button.setVisible(is_cards_tab)
 
     def _toggle_history_dock(self, card_id: int) -> None:  # noqa: ARG002 -- dock content already synced by CardController
         # A QDockWidget takes its space out of the central widget rather

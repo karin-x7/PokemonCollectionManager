@@ -45,6 +45,14 @@ class FakeCardController:
         self.refresh_calls += 1
 
 
+class FakeStatisticsController:
+    def __init__(self) -> None:
+        self.refresh_calls = 0
+
+    def refresh(self) -> None:
+        self.refresh_calls += 1
+
+
 @pytest.fixture(scope="module")
 def qapp():
     return build_application([])
@@ -128,7 +136,52 @@ def test_a_second_request_while_running_is_ignored(monkeypatch, main_window: Mai
     # start() runs synchronously but (unlike the autouse fixture) never
     # emits `finished`, simulating a lookup that's still in progress.
     monkeypatch.setattr(PriceLookupWorker, "start", lambda self: self.run())
-    controller._start_lookup(1)
-    controller._start_lookup(1)
+    controller.start_lookup(1)
+    controller.start_lookup(1)
 
     assert service.calls == [1]
+
+
+def test_successful_lookup_also_refreshes_statistics_controller_if_given(
+    main_window: MainWindow,
+) -> None:
+    service = FakePriceService(card=_PRICED_CARD)
+    card_controller = FakeCardController()
+    statistics_controller = FakeStatisticsController()
+    PriceController(
+        main_window,
+        main_window.card_detail_panel,
+        lambda: (service, None),
+        card_controller,
+        statistics_controller=statistics_controller,
+    )
+
+    main_window.card_detail_panel.price_lookup_requested.emit(1)
+
+    assert statistics_controller.refresh_calls == 1
+
+
+def test_statistics_panel_button_triggers_the_same_lookup(main_window: MainWindow) -> None:
+    # Wired for real in MainWindow's own construction -- verifies the
+    # inline "Preis aktualisieren" button in the Statistiken tab reaches
+    # the real PriceController, not just CardDetailPanel's own button.
+    #
+    # Reassigning an *instance* attribute (e.g.
+    # ``main_window.price_controller.start_lookup = ...``) would NOT
+    # actually intercept this: the signal was already connected to the
+    # original bound method inside MainWindow's own construction, and Qt
+    # keeps that reference regardless of what the attribute is reassigned
+    # to afterwards. A first, flawed version of this test relied on exactly
+    # that and ended up triggering a *real* Cardmarket lookup (real Chrome,
+    # real network) for a nonexistent card id during test runs. Disconnect
+    # the real slot and attach a spy instead, the same pattern already used
+    # for the toolbar search button in test_ui_smoke.py.
+    main_window.statistics_panel.price_lookup_requested.disconnect(
+        main_window.price_controller.start_lookup
+    )
+    calls: list[int] = []
+    main_window.statistics_panel.price_lookup_requested.connect(calls.append)
+
+    main_window.statistics_panel.price_lookup_requested.emit(7)
+
+    assert calls == [7]

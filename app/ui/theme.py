@@ -8,6 +8,15 @@ style sheet (QSS) that's applied to the whole application.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+
+#: A small white checkmark drawn with QPainter (see PROJECT_PROGRESS.md) --
+#: shown on a checked QCheckBox, whose fully custom ::indicator styling
+#: below otherwise replaces the native checkmark glyph with nothing.
+_CHECK_ICON_PATH = (
+    (Path(__file__).resolve().parent.parent / "resources" / "check.png")
+    .as_posix()
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +91,14 @@ def build_stylesheet() -> str:
         border: none;
         background: transparent;
     }}
+    QLabel#SectionHeader {{
+        font-size: 12pt;
+        font-weight: 700;
+        color: {p.text};
+        padding: 10px 0 2px 0;
+        border: none;
+        background: transparent;
+    }}
     QLabel#FieldValue {{
         font-weight: 600;
         border: none;
@@ -122,19 +139,21 @@ def build_stylesheet() -> str:
         background-color: {p.selection};
         color: {p.accent_secondary};
     }}
-    QLineEdit {{
-        background-color: {p.window};
+    QLineEdit, QPlainTextEdit, QSpinBox {{
+        background-color: {p.panel_raised};
+        color: {p.text};
         border: 1px solid {p.border};
         border-radius: 8px;
         padding: 6px 10px;
         selection-background-color: {p.accent};
         selection-color: #1a1408;
     }}
-    QLineEdit:focus {{
+    QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus {{
         border: 1px solid {p.accent};
     }}
     QComboBox {{
-        background-color: {p.window};
+        background-color: {p.panel_raised};
+        color: {p.text};
         border: 1px solid {p.border};
         border-radius: 8px;
         padding: 6px 10px;
@@ -142,8 +161,30 @@ def build_stylesheet() -> str:
     QComboBox:focus, QComboBox:on {{
         border: 1px solid {p.accent};
     }}
+    QComboBox QListView {{
+        background-color: {p.panel_raised};
+        color: {p.text};
+        border: 1px solid {p.accent};
+        outline: none;
+        padding: 2px;
+    }}
+    QComboBox QListView::item {{
+        padding: 6px 10px;
+    }}
     QCheckBox {{
         spacing: 8px;
+    }}
+    QCheckBox::indicator {{
+        width: 18px;
+        height: 18px;
+        border: 1px solid {p.border};
+        border-radius: 4px;
+        background-color: {p.panel_raised};
+    }}
+    QCheckBox::indicator:checked {{
+        background-color: {p.accent};
+        border: 1px solid {p.accent};
+        image: url({_CHECK_ICON_PATH});
     }}
     QPushButton {{
         background-color: {p.accent};
@@ -190,13 +231,13 @@ def build_stylesheet() -> str:
         background-color: {p.selection};
         color: {p.selection_text};
     }}
-    QListWidget::item:hover {{
-        background-color: {p.selection};
+    QTableWidget::item {{
+        padding: 8px 14px;
     }}
     QHeaderView::section {{
         background-color: {p.window};
         color: {p.muted};
-        padding: 6px 8px;
+        padding: 8px 14px;
         border: none;
         border-bottom: 1px solid {p.accent};
         font-weight: 600;

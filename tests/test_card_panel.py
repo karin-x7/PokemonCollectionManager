@@ -15,10 +15,13 @@ from unittest.mock import MagicMock
 import pytest
 from PySide6.QtWidgets import QDialog, QMessageBox
 
+from PySide6.QtGui import QColor
+
 from app.catalog.models import CatalogCard
 from app.models.card import Card, CardDetailsValues
 from app.models.enums import Condition, Language
 from app.ui.app import build_application
+from app.ui.theme import PALETTE
 from app.ui.widgets.card_list_panel import CardListPanel
 
 _CATALOG_CARD = CatalogCard(
@@ -66,6 +69,31 @@ def test_set_cards_preserves_selection_by_id(panel: CardListPanel) -> None:
     panel._table.setCurrentCell(1, 0)  # Charizard, id=2
     panel.set_cards([_card(id=2, name="Charizard"), _card(id=1, name="Xatu")])
     assert panel.selected_card_id() == 2
+
+
+def test_price_column_shows_dash_without_a_price(panel: CardListPanel) -> None:
+    panel.set_cards([_card(id=1, current_price=None)])
+
+    assert panel._table.item(0, 7).text() == "—"
+
+
+def test_price_column_shows_no_reminder_for_a_fresh_price(panel: CardListPanel) -> None:
+    from datetime import datetime, timezone
+
+    fresh = datetime.now(timezone.utc).isoformat()
+    panel.set_cards([_card(id=1, current_price=10.0, price_updated_at=fresh)])
+
+    assert "⚠️" not in panel._table.item(0, 7).text()
+
+
+def test_price_column_shows_reminder_for_a_stale_price(panel: CardListPanel) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    stale = (datetime.now(timezone.utc) - timedelta(days=200)).isoformat()
+    panel.set_cards([_card(id=1, current_price=10.0, price_updated_at=stale)])
+
+    assert "⚠️" in panel._table.item(0, 7).text()
+    assert panel._table.item(0, 7).foreground().color() == QColor(PALETTE.negative)
 
 
 def test_selection_changed_emits_minus_one_when_cleared(panel: CardListPanel) -> None:

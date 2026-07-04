@@ -13,6 +13,7 @@ from app.models.enums import Condition, Language
 from app.services.statistics_service import (
     CollectionValueSummary,
     PriceIncreaseHighlight,
+    StalePriceEntry,
     StatisticsOverview,
     ValueBreakdownEntry,
 )
@@ -49,11 +50,13 @@ def _overview(**overrides) -> StatisticsOverview:
     base = dict(
         per_collection=[],
         grand_total=0.0,
+        as_of=None,
         value_by_set=[],
         value_by_language=[],
         value_by_condition=[],
         most_expensive_cards=[],
         biggest_price_increase=None,
+        stale_price_cards=[],
     )
     base.update(overrides)
     return StatisticsOverview(**base)
@@ -123,3 +126,48 @@ def test_shows_placeholder_when_no_price_increase(panel: StatisticsPanel) -> Non
     panel.show_overview(_overview())
 
     assert "Keine" in panel._price_increase_label.text()
+
+
+def test_shows_as_of_date_and_disclaimer(panel: StatisticsPanel) -> None:
+    panel.show_overview(_overview(as_of="2026-07-04T10:00:00+00:00"))
+
+    text = panel._as_of_label.text()
+    assert "04.07.2026" in text
+    assert "veraltet" in text
+
+
+def test_shows_as_of_placeholder_when_never_updated(panel: StatisticsPanel) -> None:
+    panel.show_overview(_overview(as_of=None))
+
+    assert "noch nie aktualisiert" in panel._as_of_label.text()
+
+
+def test_shows_stale_price_cards_with_days_and_never_updated(panel: StatisticsPanel) -> None:
+    overview = _overview(
+        stale_price_cards=[
+            StalePriceEntry(card=_card(name="NeverPriced"), days_since_update=None),
+            StalePriceEntry(card=_card(name="VeryStale"), days_since_update=120),
+        ]
+    )
+
+    panel.show_overview(overview)
+
+    assert panel._stale_table.rowCount() == 2
+    assert panel._stale_table.item(0, 0).text() == "NeverPriced"
+    assert "noch nie" in panel._stale_table.item(0, 2).text()
+    assert panel._stale_table.item(1, 0).text() == "VeryStale"
+    assert "120" in panel._stale_table.item(1, 2).text()
+
+
+def test_stale_price_row_has_update_button_emitting_card_id(panel: StatisticsPanel) -> None:
+    overview = _overview(
+        stale_price_cards=[StalePriceEntry(card=_card(id=42), days_since_update=100)]
+    )
+    panel.show_overview(overview)
+    received: list[int] = []
+    panel.price_lookup_requested.connect(received.append)
+
+    button = panel._stale_table.cellWidget(0, 3)
+    button.click()
+
+    assert received == [42]

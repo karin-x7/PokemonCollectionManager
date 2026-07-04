@@ -52,6 +52,56 @@ def test_toolbar_exposes_core_actions(qapp) -> None:
     assert any("Export" in t for t in texts)
 
 
+def test_tab_bar_is_hidden_navigation_is_toolbar_only(qapp) -> None:
+    window = MainWindow()
+    assert window.centralWidget().tabBar().isHidden()
+
+
+def test_toolbar_nav_switches_central_tab(qapp) -> None:
+    window = MainWindow()
+    tabs = window.centralWidget()
+    assert tabs.currentIndex() == 0
+    assert window._act_tab_cards.isChecked()
+
+    window._act_tab_stats.trigger()
+
+    assert tabs.currentIndex() == 1
+    assert window._act_tab_stats.isChecked()
+    assert not window._act_tab_cards.isChecked()
+
+    window._act_tab_cards.trigger()
+
+    assert tabs.currentIndex() == 0
+    assert window._act_tab_cards.isChecked()
+
+
+def test_toolbar_nav_to_statistics_refreshes_it(qapp) -> None:
+    window = MainWindow()
+    calls: list[bool] = []
+    window.statistics_controller.refresh = lambda: calls.append(True)
+
+    window._act_tab_stats.trigger()
+
+    assert calls == [True]
+
+
+def test_search_bar_hidden_outside_of_cards_tab(qapp) -> None:
+    window = MainWindow()
+    window.show()
+    assert not window._search.isHidden()
+    assert not window._search_button.isHidden()
+
+    window._act_tab_stats.trigger()
+
+    assert window._search.isHidden()
+    assert window._search_button.isHidden()
+
+    window._act_tab_cards.trigger()
+
+    assert not window._search.isHidden()
+    assert not window._search_button.isHidden()
+
+
 def test_search_button_submits_same_as_enter(qapp) -> None:
     window = MainWindow()
     # Disconnect the real catalog controller first: it would otherwise make

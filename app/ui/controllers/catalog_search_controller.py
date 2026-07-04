@@ -10,8 +10,8 @@ MainWindow`).
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QMainWindow, QMessageBox
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 
 from app.catalog.models import CatalogCard
 from app.logging_config import get_logger
@@ -45,12 +45,23 @@ class CatalogSearchController(QObject):
             self._main_window.statusBar().showMessage("Bitte Suchbegriff eingeben.", 5000)
             return
 
+        # The actual search below is a synchronous, blocking network call --
+        # without this, the window just seemed to "do nothing" for however
+        # long pokemontcg.io took to answer. showMessage() alone wouldn't
+        # actually repaint before the block starts, so force one via
+        # processEvents() right after.
+        self._main_window.statusBar().showMessage(f"Suche läuft für „{cleaned}“ …")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        QApplication.processEvents()
         try:
-            matches = self._service.search(cleaned)
-        except CatalogSearchError as exc:
-            logger.error("Catalogue search failed for %r: %s", cleaned, exc)
-            self._show_error(str(exc))
-            return
+            try:
+                matches = self._service.search(cleaned)
+            except CatalogSearchError as exc:
+                logger.error("Catalogue search failed for %r: %s", cleaned, exc)
+                self._show_error(str(exc))
+                return
+        finally:
+            QApplication.restoreOverrideCursor()
 
         message = (
             f"{len(matches)} Treffer für „{cleaned}“."

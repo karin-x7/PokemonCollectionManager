@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from app.database.connection import Database
@@ -13,7 +15,9 @@ from app.models.enums import Condition, Language, PriceQuality
 from app.models.price import PriceRecord
 from app.services.card_service import CardService
 from app.services.collection_service import CollectionService
-from app.services.statistics_service import StatisticsService
+from app.services.statistics_service import STALE_PRICE_THRESHOLD_DAYS, StatisticsService
+
+_FIXED_NOW = datetime(2026, 7, 4, tzinfo=timezone.utc)
 
 
 @pytest.fixture
@@ -37,6 +41,7 @@ def service(temp_db: Database) -> StatisticsService:
         CardService(CardRepository(temp_db), image_downloader=lambda _card: None),
         CollectionService(CollectionRepository(temp_db)),
         PriceRepository(temp_db),
+        now=lambda: _FIXED_NOW,
     )
 
 
@@ -61,9 +66,11 @@ def test_compute_overview_with_no_cards_at_all(service: StatisticsService) -> No
 
     assert overview.per_collection == []
     assert overview.grand_total == 0.0
+    assert overview.as_of is None
     assert overview.value_by_set == []
     assert overview.most_expensive_cards == []
     assert overview.biggest_price_increase is None
+    assert overview.stale_price_cards == []
 
 
 def test_per_collection_totals_and_grand_total(
@@ -202,3 +209,69 @@ def test_biggest_price_increase_ignores_cards_with_less_than_two_records(
     overview = service.compute_overview()
 
     assert overview.biggest_price_increase is None
+
+
+def test_as_of_is_the_most_recent_price_update_across_all_cards(
+    service: StatisticsService, cards: CardRepository, collections: CollectionRepository
+) -> None:
+    binder = collections.create("Binder")
+    cards.create(_card(binder.id, name="Older", price_updated_at="2026-06-01T00:00:00+00:00"))
+    cards.create(_card(binder.id, name="Newer", price_updated_at="2026-07-01T00:00:00+00:00"))
+
+    overview = service.compute_overview()
+
+    assert overview.as_of == "2026-07-01T00:00:00+00:00"
+
+
+def test_as_of_ignores_cards_never_priced(
+    service: StatisticsService, cards: CardRepository, collections: CollectionRepository
+) -> None:
+    binder = collections.create("Binder")
+    cards.create(_card(binder.id, price_updated_at=None))
+
+    overview = service.compute_overview()
+
+    assert overview.as_of is None
+
+
+def test_stale_price_cards_includes_never_priced_first(
+    service: StatisticsService, cards: CardRepository, collections: CollectionRepository
+) -> None:
+    binder = collections.create("Binder")
+    cards.create(_card(binder.id, name="NeverPriced", price_updated_at=None))
+    old_timestamp = (_FIXED_NOW - timedelta(days=STALE_PRICE_THRESHOLD_DAYS + 10)).isoformat()
+    cards.create(_card(binder.id, name="VeryStale", price_updated_at=old_timestamp))
+
+    overview = service.compute_overview()
+
+    names = [entry.card.name for entry in overview.stale_price_cards]
+    assert names == ["NeverPriced", "VeryStale"]
+    assert overview.stale_price_cards[0].days_since_update is None
+    assert overview.stale_price_cards[1].days_since_update == STALE_PRICE_THRESHOLD_DAYS + 10
+
+
+def test_stale_price_cards_excludes_recently_updated(
+    service: StatisticsService, cards: CardRepository, collections: CollectionRepository
+) -> None:
+    binder = collections.create("Binder")
+    recent_timestamp = (_FIXED_NOW - timedelta(days=1)).isoformat()
+    cards.create(_card(binder.id, name="Fresh", price_updated_at=recent_timestamp))
+
+    overview = service.compute_overview()
+
+    assert overview.stale_price_cards == []
+
+
+def test_stale_price_cards_sorted_most_overdue_first(
+    service: StatisticsService, cards: CardRepository, collections: CollectionRepository
+) -> None:
+    binder = collections.create("Binder")
+    less_stale = (_FIXED_NOW - timedelta(days=STALE_PRICE_THRESHOLD_DAYS + 5)).isoformat()
+    more_stale = (_FIXED_NOW - timedelta(days=STALE_PRICE_THRESHOLD_DAYS + 50)).isoformat()
+    cards.create(_card(binder.id, name="LessStale", price_updated_at=less_stale))
+    cards.create(_card(binder.id, name="MoreStale", price_updated_at=more_stale))
+
+    overview = service.compute_overview()
+
+    names = [entry.card.name for entry in overview.stale_price_cards]
+    assert names == ["MoreStale", "LessStale"]

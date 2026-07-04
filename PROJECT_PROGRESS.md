@@ -3,14 +3,169 @@
 > Synchronisationsdatei zwischen mehreren PCs. Enthält jederzeit den aktuellen
 > Entwicklungsstand. Wird nach **jedem** Entwicklungsschritt aktualisiert.
 
-**Letzter Schritt:** Schritt 10 — Statistiken (neuer "Statistiken"-Tab:
-Gesamtpreis-Übersicht pro Sammlung + ordnerübergreifend, Wert nach
-Set/Sprache/Zustand, teuerste Karten, größte Preissteigerung)
+**Letzter Schritt:** Dritte Nachbesserungsrunde zu Schritt 10 — Statistik-
+Tabellenlayout (Name/Set 50:50, Zeilenhöhe für den Aktion-Button), Lade-
+Feedback bei der Katalogsuche, abgehobene Eingabefelder + Checkbox-Häkchen
+im Bearbeiten-Dialog, Fenster-/Splitterbreiten angepasst; Hover-Effekte auf
+Tabellen/Listen/Dropdowns nach mehreren erfolglosen Versuchen wieder
+komplett entfernt (nur Button-Hover bleibt) — wird später erneut angegangen
 **Datum:** 2026-07-04
 **Version:** 0.1.0
-**TestStatus:** ✅ 268 Tests grün (`pytest`) · ✅ `compileall` sauber ·
-✅ Screenshot-Check (alle Abschnitte rendern) · ✅ Zahlen manuell gegen die
-echte Datenbank nachgerechnet
+**TestStatus:** ✅ 286 Tests grün (`pytest`, voller Lauf) · ✅ `compileall`
+sauber
+
+---
+
+## Dritte Nachbesserungsrunde zu Schritt 10 (2026-07-04)
+
+Auf weiteres Nutzerfeedback nach der zweiten Nachbesserung:
+
+1. **"Preis aktualisieren"-Button in der Statistik-Tabelle war wiederholt
+   abgeschnitten/verzerrt.** Zwei verschiedene Ursachen nacheinander
+   gefunden und behoben: zuerst war die Spaltenbreite zu schmal
+   (`resizeColumnToContents()` erfasst keine Cell-*Widgets* zuverlässig,
+   nur `QTableWidgetItem`-Text — jetzt eine feste Breite aus einer
+   Konstante `_UPDATE_BUTTON_WIDTH`); dann war die **Zeilenhöhe** zu
+   niedrig (derselbe `resizeRowsToContents()`-Blindspot für Cell-Widgets),
+   wodurch der fett/gepolsterte Button-Text oben/unten abgeschnitten wurde
+   und "doppelt" aussah — behoben durch explizites `setRowHeight()` aus
+   `button.sizeHint().height()` je Zeile, mit großzügigem Puffer (+24px).
+2. **Name/Set-Spalten in "Karten mit veraltetem Preis"/"Teuerste Karten"
+   auf 50:50** — beide Spalten sind jetzt `Stretch` statt nur "Set" (vorher
+   quetschte das lange Set-Namen).
+3. **Splitter-/Fensterbreiten:** Sammlungen-Panel schmaler (200→160px),
+   Kartenliste breiter (min. 420→480px, Startgröße 620→730px), Fenster
+   insgesamt breiter (1280→1360px) — die Kartenliste brauchte vorher
+   horizontales Scrollen.
+4. **Lade-Feedback bei der Katalogsuche:** Die Suche ist ein synchroner,
+   blockierender Netzwerkaufruf — vorher wirkte das Programm dabei wie
+   eingefroren. `CatalogSearchController.handle_search()` zeigt jetzt
+   sofort "Suche läuft für „…“ …" in der Statusleiste + Wartecursor, mit
+   `QApplication.processEvents()` erzwungenem Repaint davor.
+5. **Eingabefelder im Bearbeiten-Dialog abgehoben:** `QLineEdit`/
+   `QComboBox`/`QSpinBox`/`QPlainTextEdit` nutzen jetzt `panel_raised`
+   statt der Fensterfarbe als Hintergrund, damit sie sich vom Dialog
+   abheben.
+6. **Checkbox-Häkchen:** Ein weißes Häkchen (`app/resources/check.png`,
+   mit `QPainter` erzeugt wie das App-Icon) erscheint jetzt im angehakten
+   Kästchen — die komplett angepasste `::indicator`-Optik hatte das
+   native Häkchen-Glyph vorher ersatzlos entfernt.
+7. **Hover-Effekte wieder entfernt:** Mehrere Versuche, Tabellenzeilen und
+   Dropdown-Einträge beim Drüberfahren hervorzuheben, blieben erfolglos
+   (u. a. falsche CSS-Klasse `QAbstractItemView` statt der konkreten
+   `QComboBox QListView`, die Qt intern für Dropdown-Popups nutzt — auch
+   nach der Korrektur funktionierte es beim Nutzer weiterhin nicht). Auf
+   Nutzerwunsch komplett zurückgerollt (nur `QPushButton:hover` u. Ä.
+   bleiben) — wird später erneut angegangen, wenn Zeit dafür ist.
+
+**Tests:** weiterhin 286 grün — Anpassungen betrafen ausschließlich Layout/
+Styling, keine neue Testlogik nötig (Verhalten unverändert).
+
+---
+
+## Hinweis zur Testlaufzeit (2026-07-04)
+
+Der volle `pytest -q`-Lauf brauchte während dieser Session mehrfach deutlich
+länger als üblich (teils mehrere Minuten statt der sonst üblichen ~90–100s)
+und wirkte dabei zeitweise wie aufgehängt. Isolierte Läufe derselben
+Testdateien liefen jedes Mal in wenigen Sekunden fehlerfrei durch, und ein
+finaler vollständiger Lauf hat am Ende sauber mit **286 grünen Tests in
+111s** abgeschlossen — die Verlangsamung lag an Systemauslastung durch die
+vielen in dieser Session parallel gelaufenen Hintergrundprozesse (mehrere
+Chrome-Instanzen, mehrere Python-Prozesse, Screenshot-Skripte), nicht an
+einem echten Fehler im Code.
+
+Ein tatsächlicher Test-Bug wurde beim Nachforschen trotzdem gefunden und
+behoben: `tests/test_price_controller.py` versuchte, eine bereits
+verbundene Signal-Methode nachträglich per Instanz-Attribut zu ersetzen
+(`main_window.price_controller.start_lookup = calls.append`) — das
+überschreibt in Qt **nicht** die schon bestehende Signal-Verbindung, wodurch
+beim `emit()` zusätzlich der echte `PriceController.start_lookup()` gelaufen
+wäre (mit echtem Chrome/Cardmarket-Zugriff für eine nicht existierende
+Karten-ID). Behoben nach demselben Muster wie der Toolbar-Suchtest: echte
+Verbindung trennen, dann einen Spy verbinden.
+
+---
+
+## Zweite Nachbesserungsrunde zu Schritt 10 (2026-07-04)
+
+Auf weiteres Nutzerfeedback nach der ersten Nachbesserung:
+
+1. **Suchleiste nur im "Karten"-Tab:** Es ergab keinen Sinn, die
+   Toolbar-Katalogsuche auch anzuzeigen, während man im "Statistik"-Tab ist.
+   `MainWindow._on_central_tab_changed()` blendet Suchfeld + Suchen-Button
+   jetzt je nach aktivem Tab ein/aus.
+2. **Text statt Icons für die Tab-Navigation:** Die Icons für "Karten"/
+   "Statistik" waren nicht selbsterklärend. Beide `QAction`s sind jetzt
+   reiner Text, keine Icons mehr.
+3. **"!"-Preis-Reminder in der Kartenliste:** Karten mit einem Preis, der
+   älter als die Stale-Schwelle ist, zeigen jetzt ein "!" hinter dem
+   Preis in der Kartenliste (`app/ui/widgets/card_list_panel.py`). Nutzt
+   dieselbe `is_price_stale()`-Logik wie die Statistik-Übersicht (neu aus
+   `app/services/statistics_service.py` exportiert, gemeinsam mit
+   `days_since_price_update()`) — eine einzige Definition von "veraltet",
+   nicht zwei. Karten ganz ohne Preis zeigen weiterhin nur "—" (kein "!"
+   nötig, das Fehlen ist schon offensichtlich).
+4. **Inline "Preis aktualisieren" direkt in der Statistik-Tabelle:** Jede
+   Zeile in "Karten mit veraltetem Preis" hat jetzt einen echten
+   "Preis aktualisieren"-Button (4. Spalte), der denselben Cardmarket-Lookup
+   auslöst wie der große Button im Kartendetail-Panel — kein Platzhalter.
+   Dafür: neues `StatisticsPanel.price_lookup_requested`-Signal;
+   `PriceController.start_lookup()` ist jetzt public (vorher
+   `_start_lookup`) und bekommt optional einen `statistics_controller`, den
+   es nach einem erfolgreichen Lookup ebenfalls aktualisiert, damit die
+   Zeile in der Statistik-Tabelle sofort verschwindet/sich aktualisiert,
+   ohne auf den nächsten Tab-Wechsel warten zu müssen.
+5. **Fußnote mit dem Zeitraum:** Unter der Tabelle steht jetzt explizit
+   „Karten, deren Preis seit mehr als 90 Tagen nicht aktualisiert wurde
+   oder noch nie ermittelt wurde." (nutzt `STALE_PRICE_THRESHOLD_DAYS`
+   direkt, bleibt also korrekt, falls der Schwellwert sich mal ändert).
+
+**Tests:** neue Fälle in `test_card_panel.py` ("!"-Anzeige),
+`test_statistics_panel.py` (Inline-Button emittiert Karten-ID),
+`test_price_controller.py` (Statistik-Refresh nach Lookup, Verdrahtung des
+Statistik-Buttons), `test_ui_smoke.py` (Suchleisten-Sichtbarkeit,
+Text-Buttons).
+
+---
+
+## Erste Nachbesserung zu Schritt 10 (2026-07-04)
+
+Auf Nutzerwunsch nach dem ersten Statistiken-Durchlauf:
+
+1. **Größere Headlines:** Abschnitts-Überschriften im Statistiken-Tab waren
+   optisch kaum von normalen Feldbeschriftungen zu unterscheiden — neuer
+   QSS-Selektor `QLabel#SectionHeader` (12pt, fett, normale statt gedämpfte
+   Textfarbe) in `app/ui/theme.py`, von `StatisticsPanel._section_label()`
+   verwendet statt des bisherigen `#FieldLabel`.
+2. **Stand-Datum + Genauigkeits-Hinweis:** Der Gesamtwert kann veraltet sein,
+   da er auf dem jeweils letzten bekannten Preis je Karte basiert. Neues
+   `StatisticsOverview.as_of`-Feld (jüngstes `price_updated_at` über alle
+   Karten) wird direkt unter dem Gesamtwert angezeigt, zusammen mit dem
+   festen Hinweistext, dass die Zahl veraltet sein kann.
+3. **"Karten mit veraltetem Preis":** Neue Übersicht (Idee des Nutzers:
+   „diese Karte hast du seit 3 Monaten nicht aktualisiert"). Neues
+   `StatisticsService.STALE_PRICE_THRESHOLD_DAYS = 90` (genau der vom
+   Nutzer genannte Zeitraum) plus `StalePriceEntry`/`stale_price_cards`:
+   listet jede Karte, deren `price_updated_at` älter als 90 Tage ist oder
+   die noch nie einen Preis hatte (letztere zuerst, dann absteigend nach
+   Alter). `now` ist im Service injizierbar (`Callable[[], datetime]`) für
+   deterministische Tests.
+4. **Toolbar-Navigation:** `MainWindow`s Zentral-`QTabWidget` versteckt jetzt
+   seine eigene Tab-Leiste (`tabs.tabBar().hide()`); Umschalten läuft
+   stattdessen über zwei neue, sich gegenseitig ausschließende
+   (`QActionGroup`) Toolbar-Buttons "Karten"/"Statistik" mit Icons, an der
+   Stelle, an der vorher die kaum genutzten Platzhalter-Buttons saßen.
+   Auswahlzustand bleibt über `_on_central_tab_changed` synchron, auch wenn
+   der Tab auf anderem Weg wechselt.
+
+**Tests:** 279 grün — neue Fälle für `as_of`/`stale_price_cards` in
+`test_statistics_service.py`, neue Anzeige-Tests in `test_statistics_panel.py`,
+neue Toolbar-Navigationstests in `test_ui_smoke.py`.
+
+**Noch offen (auf Wunsch des Nutzers zurückgestellt):** weiterer optischer
+Feinschliff am Statistiken-Tab (Tabellen-Styling, Abstände) bei Bedarf
+später nachziehen.
 
 ---
 

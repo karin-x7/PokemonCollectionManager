@@ -6,6 +6,42 @@ Versionierung nach [SemVer](https://semver.org).
 
 ## [Unreleased]
 
+### Hinzugefügt/Behoben — Dritte Nachbesserung zu Schritt 10: Statistiken
+- "Preis aktualisieren"-Button in der Statistik-Tabelle war abgeschnitten:
+  Spaltenbreite und (der eigentliche Grund) Zeilenhöhe waren zu klein, da
+  `resizeColumnToContents()`/`resizeRowsToContents()` Cell-*Widgets* nicht
+  zuverlässig einbeziehen — jetzt feste Breite/Höhe direkt aus dem Button.
+- Name/Set-Spalten in "Karten mit veraltetem Preis"/"Teuerste Karten" jetzt
+  50:50 statt Set gequetscht.
+- Kartenliste breiter, Sammlungen-Panel schmaler, Fenster insgesamt breiter
+  — kein horizontales Scrollen mehr nötig.
+- Lade-Feedback ("Suche läuft …" + Wartecursor) bei der Katalogsuche.
+- Eingabefelder im Bearbeiten-Dialog heben sich jetzt farblich vom
+  Hintergrund ab; Checkbox zeigt ein Häkchen-Icon, wenn angehakt.
+- Hover-Effekte auf Tabellenzeilen/Dropdown-Einträgen nach mehreren
+  erfolglosen Versuchen wieder entfernt (Button-Hover bleibt) — spätere
+  Wiederaufnahme geplant.
+
+### Hinzugefügt — Zweite Nachbesserung zu Schritt 10: Statistiken
+- Suchleiste + Suchen-Button sind jetzt nur noch im "Karten"-Tab sichtbar.
+- Toolbar-Navigation "Karten"/"Statistik" zeigt nur noch Text, keine Icons.
+- "!"-Preis-Reminder neben dem Preis in der Kartenliste bei veraltetem Preis.
+- Inline "Preis aktualisieren"-Button direkt in der "Karten mit veraltetem
+  Preis"-Tabelle — löst denselben echten Cardmarket-Lookup aus wie der große
+  Button im Kartendetail-Panel.
+- Fußnote nennt jetzt explizit den 90-Tage-Zeitraum.
+- `PriceController.start_lookup()` ist jetzt public und aktualisiert optional
+  auch die Statistik-Ansicht nach einem erfolgreichen Lookup.
+
+### Hinzugefügt — Nachbesserung zu Schritt 10: Statistiken
+- Größere, deutlich abgesetzte Abschnitts-Überschriften im Statistiken-Tab.
+- Gesamtwert zeigt jetzt ein Stand-Datum (jüngstes Preis-Update über alle
+  Karten) plus einen Hinweis, dass der Wert veraltet sein kann.
+- Neue Übersicht "Karten mit veraltetem Preis": listet Karten, deren Preis
+  seit ≥90 Tagen nicht aktualisiert wurde oder noch nie ermittelt wurde.
+- Navigation zwischen "Karten" und "Statistik" läuft jetzt über zwei
+  Toolbar-Buttons statt der (jetzt versteckten) Tab-Leiste.
+
 ### Hinzugefügt — Schritt 10: Statistiken
 - Neuer "Statistiken"-Tab (Zentral-Widget ist jetzt ein `QTabWidget`):
   Gesamtpreis-Übersicht mit Wert + Kartenzahl pro Sammlung **und**

@@ -12,6 +12,7 @@ validation/persistence runs exclusively via
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -27,17 +28,24 @@ from PySide6.QtWidgets import (
 
 from app.catalog.models import CatalogCard
 from app.models.card import Card, CardDetailsValues
+from app.services.statistics_service import is_price_stale
 from app.ui.dialogs.card_details_dialog import CardDetailsDialog
+from app.ui.theme import PALETTE
 from app.ui.widgets.card_filter_bar import CardFilterBar
 
 _COLUMNS = ["Name", "Set", "Nr.", "Extra", "Sprache", "Zustand", "Menge", "Preis"]
 _ID_ROLE = Qt.ItemDataRole.UserRole
+_PRICE_COLUMN = len(_COLUMNS) - 1
 
 
 def _price_text(card: Card) -> str:
     if card.current_price is None:
         return "—"
-    return f"{card.current_price:.2f} {card.price_currency}"
+    price = f"{card.current_price:.2f} {card.price_currency}"
+    # A warning emoji, not just "!" -- reuses the exact same threshold as
+    # the Statistiken tab's "Karten mit veraltetem Preis" list, one
+    # definition of "stale", not two.
+    return f"{price}  ⚠️" if is_price_stale(card) else price
 
 
 def _extras_text(card: Card) -> str:
@@ -129,8 +137,11 @@ class CardListPanel(QWidget):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 if col == 0:
                     item.setData(_ID_ROLE, card.id)
+                if col == _PRICE_COLUMN and card.current_price is not None and is_price_stale(card):
+                    item.setForeground(QColor(PALETTE.negative))
                 self._table.setItem(row, col, item)
         self._table.blockSignals(False)
+        self._table.resizeRowsToContents()
 
         self._restore_selection(previous_id)
 

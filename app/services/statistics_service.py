@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from app.database.repositories.price_repository import PriceRepository
 from app.models.card import Card, CardFilter
@@ -23,6 +24,10 @@ from app.services.collection_service import CollectionService
 
 #: How many cards to list under "Teuerste Karten".
 _TOP_EXPENSIVE_CARDS = 10
+#: A card whose price is older than this (or was never priced at all) shows
+#: up under "Karten mit veraltetem Preis" -- the exact figure the user gave
+#: as their own example ("seit 3 Monaten nicht aktualisiert").
+STALE_PRICE_THRESHOLD_DAYS = 90
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,16 +59,54 @@ class PriceIncreaseHighlight:
 
 
 @dataclass(frozen=True, slots=True)
+class StalePriceEntry:
+    """A card whose price is old (or was never determined at all).
+
+    ``days_since_update`` is ``None`` for a card that has never had a price
+    lookup run at all -- there's no date to show, just "never".
+    """
+
+    card: Card
+    days_since_update: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class StatisticsOverview:
     """Everything the statistics view shows, computed in one pass."""
 
     per_collection: list[CollectionValueSummary]
     grand_total: float
+    #: Most recent ``price_updated_at`` across every priced card -- shown
+    #: next to the grand total so it's clear *when* that number is from,
+    #: not just what it is.
+    as_of: str | None
     value_by_set: list[ValueBreakdownEntry]
     value_by_language: list[ValueBreakdownEntry]
     value_by_condition: list[ValueBreakdownEntry]
     most_expensive_cards: list[Card]
     biggest_price_increase: PriceIncreaseHighlight | None
+    #: Cards whose price is older than STALE_PRICE_THRESHOLD_DAYS (or was
+    #: never determined), most stale/never-priced first.
+    stale_price_cards: list[StalePriceEntry]
+
+
+def days_since_price_update(card: Card, now: datetime | None = None) -> int | None:
+    """Days since ``card``'s price was last determined, or ``None`` if never."""
+    if card.price_updated_at is None:
+        return None
+    now = now or datetime.now(timezone.utc)
+    updated_at = datetime.fromisoformat(card.price_updated_at)
+    return (now - updated_at).days
+
+
+def is_price_stale(card: Card, now: datetime | None = None) -> bool:
+    """Whether ``card``'s price is old enough to nudge the user to refresh it.
+
+    Reused by :class:`~app.ui.widgets.card_list_panel.CardListPanel` (a "!"
+    marker next to the price) so the threshold is only defined once.
+    """
+    days = days_since_price_update(card, now)
+    return days is None or days >= STALE_PRICE_THRESHOLD_DAYS
 
 
 def _value_of(card: Card) -> float:
@@ -85,10 +128,12 @@ class StatisticsService:
         card_service: CardService,
         collection_service: CollectionService,
         price_repository: PriceRepository,
+        now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ) -> None:
         self._cards = card_service
         self._collections = collection_service
         self._prices = price_repository
+        self._now = now
 
     def compute_overview(self) -> StatisticsOverview:
         """Aggregate every owned card, across every collection, into one overview."""
@@ -101,11 +146,13 @@ class StatisticsService:
         return StatisticsOverview(
             per_collection=per_collection,
             grand_total=grand_total,
+            as_of=self._most_recent_update(all_cards),
             value_by_set=self._breakdown_by(all_cards, lambda card: card.set_name or "—"),
             value_by_language=self._breakdown_by(all_cards, lambda card: card.language.label),
             value_by_condition=self._breakdown_by(all_cards, lambda card: card.condition.label),
             most_expensive_cards=self._most_expensive(all_cards),
             biggest_price_increase=self._biggest_price_increase(all_cards),
+            stale_price_cards=self._stale_price_cards(all_cards),
         )
 
     def _per_collection_summary(
@@ -161,3 +208,24 @@ class StatisticsService:
                     percent_change=percent_change,
                 )
         return best
+
+    def _most_recent_update(self, all_cards: list[Card]) -> str | None:
+        timestamps = [card.price_updated_at for card in all_cards if card.price_updated_at]
+        return max(timestamps) if timestamps else None
+
+    def _stale_price_cards(self, all_cards: list[Card]) -> list[StalePriceEntry]:
+        now = self._now()
+        entries = [
+            StalePriceEntry(card=card, days_since_update=days_since_price_update(card, now))
+            for card in all_cards
+            if is_price_stale(card, now)
+        ]
+        # Never-priced cards first (days_since_update=None sorts as "infinite"),
+        # then oldest/most-overdue first.
+        entries.sort(
+            key=lambda entry: (
+                entry.days_since_update is not None,
+                -(entry.days_since_update or 0),
+            )
+        )
+        return entries
