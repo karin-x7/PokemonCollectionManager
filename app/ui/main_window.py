@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStatusBar,
     QStyle,
+    QTabWidget,
     QToolBar,
     QWidget,
 )
@@ -37,13 +38,16 @@ from app.services.card_service import CardService
 from app.services.catalog_search_service import CatalogSearchService
 from app.services.collection_service import CollectionService
 from app.services.price_service import PriceService
+from app.services.statistics_service import StatisticsService
 from app.ui.controllers.card_controller import CardController
 from app.ui.controllers.catalog_search_controller import CatalogSearchController
 from app.ui.controllers.collection_controller import CollectionController
 from app.ui.controllers.price_controller import PriceController
+from app.ui.controllers.statistics_controller import StatisticsController
 from app.ui.theme import build_stylesheet
 from app.ui.widgets import CardDetailPanel, CardListPanel, CollectionPanel
 from app.ui.widgets.price_history_dock import PriceHistoryDock
+from app.ui.widgets.statistics_panel import StatisticsPanel
 
 logger = get_logger(__name__)
 
@@ -186,6 +190,14 @@ class MainWindow(QMainWindow):
             self, self.card_detail_panel, open_price_service, self.card_controller, parent=self
         )
 
+        self.statistics_panel = StatisticsPanel()
+        statistics_service = StatisticsService(
+            card_service, collection_service, PriceRepository(self._database)
+        )
+        self.statistics_controller = StatisticsController(
+            self.statistics_panel, statistics_service, parent=self
+        )
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.collection_panel)
         splitter.addWidget(self.card_list_panel)
@@ -196,7 +208,12 @@ class MainWindow(QMainWindow):
         splitter.setSizes([230, 620, 360])
         splitter.setContentsMargins(10, 10, 10, 10)
         splitter.setHandleWidth(10)
-        self.setCentralWidget(splitter)
+
+        tabs = QTabWidget()
+        tabs.addTab(splitter, "Karten")
+        tabs.addTab(self.statistics_panel, "Statistiken")
+        tabs.currentChanged.connect(self._on_central_tab_changed)
+        self.setCentralWidget(tabs)
 
     def _build_statusbar(self) -> None:
         status = QStatusBar()
@@ -232,6 +249,13 @@ class MainWindow(QMainWindow):
 
     def _submit_search(self) -> None:
         self.search_submitted.emit(self._search.text().strip())
+
+    def _on_central_tab_changed(self, index: int) -> None:
+        # Recomputed only when the tab actually becomes active -- statistics
+        # aren't a real-time feature, so there's no need to keep them in
+        # sync while the user is on the "Karten" tab.
+        if self.centralWidget().tabText(index) == "Statistiken":
+            self.statistics_controller.refresh()
 
     def _toggle_history_dock(self, card_id: int) -> None:  # noqa: ARG002 -- dock content already synced by CardController
         # A QDockWidget takes its space out of the central widget rather

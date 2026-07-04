@@ -3,15 +3,62 @@
 > Synchronisationsdatei zwischen mehreren PCs. Enthält jederzeit den aktuellen
 > Entwicklungsstand. Wird nach **jedem** Entwicklungsschritt aktualisiert.
 
-**Letzter Schritt:** UI/Design-Überarbeitung — dunkles Navy-Theme mit
-orange/gelben Akzenten, neues Preisverlauf-Dock (Chart + %-Änderung +
-Verlaufsliste + Reset), vergrößerte Kartenansicht, App-Icon, Suchen-Button,
-plus mehrere vom Nutzer live gefundene Nachbesserungen (siehe unten)
+**Letzter Schritt:** Schritt 10 — Statistiken (neuer "Statistiken"-Tab:
+Gesamtpreis-Übersicht pro Sammlung + ordnerübergreifend, Wert nach
+Set/Sprache/Zustand, teuerste Karten, größte Preissteigerung)
 **Datum:** 2026-07-04
 **Version:** 0.1.0
-**TestStatus:** ✅ 253 Tests grün (`pytest`) · ✅ `compileall` sauber ·
-✅ Screenshot-Check + Nutzer hat mehrere Runden live im laufenden Programm
-bestätigt/korrigiert
+**TestStatus:** ✅ 268 Tests grün (`pytest`) · ✅ `compileall` sauber ·
+✅ Screenshot-Check (alle Abschnitte rendern) · ✅ Zahlen manuell gegen die
+echte Datenbank nachgerechnet
+
+---
+
+## Schritt 10 — Statistiken (2026-07-04)
+
+Neuer "Statistiken"-Tab neben "Karten" (`MainWindow`s Zentral-Widget ist
+jetzt ein `QTabWidget`, statt direkt der 3-Spalten-Splitter — der Splitter
+ist jetzt einfach der Inhalt des ersten Tabs). Wird nur neu berechnet, wenn
+der Tab aktiv wird (`QTabWidget.currentChanged`), nicht laufend im
+Hintergrund.
+
+Mit dem Nutzer vorab geklärt: alle Detail-Statistiken (Wert nach
+Set/Sprache/Zustand, teuerste Karten, größte Preissteigerung) laufen immer
+über **alle Sammlungen** (kein Eingrenzungs-Dropdown); kein separater
+"Durchschnittswert" — nur der tatsächliche Gesamtwert zählt.
+
+**Neu:**
+- `app/services/statistics_service.py`: `StatisticsService.compute_overview()`
+  aggregiert einmalig alle Karten (`CardService.search_cards(CardFilter(collection_id=None))`)
+  rein in Python (keine Aggregations-Queries in den Repositories vorhanden) zu:
+  - `per_collection` (Wert + Kartenzahl je Sammlung, inkl. leerer Sammlungen
+    mit 0) + `grand_total` (Summe über alle Sammlungen) — beide gleichzeitig
+    sichtbar, wie ursprünglich gewünscht.
+  - `value_by_set`/`_language`/`_condition`: nach `total_value` absteigend
+    sortierte Gruppierungen.
+  - `most_expensive_cards`: Top 10 nach `total_value`, Karten ohne Preis
+    ausgeschlossen.
+  - `biggest_price_increase`: iteriert alle Karten mit bekanntem Preis,
+    vergleicht je Karte die letzten zwei `PriceRecord`s (gleiche Definition
+    wie das %-Label im `PriceHistoryDock`), Karte mit größter **positiver**
+    Änderung gewinnt; `None` wenn keine qualifiziert.
+- `app/ui/widgets/statistics_panel.py`: presentation-only, `show_overview()`
+  befüllt Tabellen/Labels für jeden Abschnitt.
+- `app/ui/controllers/statistics_controller.py`: `refresh()` ruft
+  `compute_overview()` und füttert das Panel.
+- `app/ui/main_window.py`: Splitter in `QTabWidget`-Tab "Karten" gepackt,
+  neuer Tab "Statistiken".
+
+**Tests:** 268 grün — 10 neue in `tests/test_statistics_service.py`
+(Gruppierung, Grand Total, Top-10, Preissteigerung inkl. Edge Cases: keine
+Historie, nur fallende Preise, `current_price is None`), 5 neue in
+`tests/test_statistics_panel.py`.
+
+**Verifiziert:** Screenshot aller Abschnitte (auch nach Scrollen) bestätigt
+korrektes Rendering; Zahlen von Hand gegen die echte `data/collection.db`
+nachgerechnet (Xatu 200 € + Charizard VMAX 160 € + Venusaur ohne Preis =
+360 € Gesamtwert; größte Steigerung Charizard VMAX 155 €→160 €, +3,2 % —
+beides stimmt mit der Anzeige überein).
 
 ---
 
@@ -1286,17 +1333,8 @@ späteren Fallback, falls sich das als nötig erweist.
 
 ## Offene Aufgaben (priorisiert)
 
-1. **Schritt 10 — Statistiken**, inkl. (vom Nutzer am 2026-07-03 präzisiert):
-   eigener Tab/View mit **Gesamtpreis-Übersicht** — explizite Summe (Preis ×
-   Menge) pro Sammlung/Ordner **und** eine Gesamtsumme über alle Sammlungen
-   hinweg (ordnerübergreifend). Baut auf bereits vorhandenen Daten auf
-   (`Card.current_price`, `Card.quantity`, bereits über `total_value`
-   berechenbar) — kein neues Datenmodell nötig, nur Aggregation + Anzeige.
-   Restliche ursprünglich geplante Statistiken (Wert pro Set/Sprache/
-   Zustand, teuerste Karten, größte Preissteigerung, Durchschnittswert)
-   bleiben Teil desselben Schritts.
-2. **Schritt 11 — Export (CSV/Excel/JSON/PDF).**
-3. **Schritt 12 — Webcam-Scanner (OCR/Bildvergleich).**
+1. **Schritt 11 — Export (CSV/Excel/JSON/PDF).**
+2. **Schritt 12 — Webcam-Scanner (OCR/Bildvergleich).**
 
 ---
 
@@ -1365,8 +1403,8 @@ späteren Fallback, falls sich das als nötig erweist.
 
 ## Nächster Entwicklungsschritt
 
-Schritt 9 ist abgeschlossen und bestätigt — keine offenen Punkte mehr.
+Schritt 10 ist umgesetzt und getestet (268 Tests grün) — Bestätigung im
+laufenden Programm durch den Nutzer steht noch aus.
 
-**Schritt 10 — Statistiken** (inkl. Gesamtpreis-Übersicht pro Sammlung und
-ordnerübergreifend, siehe „Offene Aufgaben" oben). Danach kurze
-Zusammenfassung und Warten auf Freigabe.
+**Schritt 11 — Export (CSV/Excel/JSON/PDF).** Danach kurze Zusammenfassung
+und Warten auf Freigabe.

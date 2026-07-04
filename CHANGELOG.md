@@ -6,6 +6,17 @@ Versionierung nach [SemVer](https://semver.org).
 
 ## [Unreleased]
 
+### Hinzugefügt — Schritt 10: Statistiken
+- Neuer "Statistiken"-Tab (Zentral-Widget ist jetzt ein `QTabWidget`):
+  Gesamtpreis-Übersicht mit Wert + Kartenzahl pro Sammlung **und**
+  Gesamtsumme über alle Sammlungen gleichzeitig sichtbar.
+- Wert nach Set/Sprache/Zustand (absteigend sortiert), teuerste Karten
+  (Top 10), größte Preissteigerung (Vergleich der letzten zwei
+  Preis-Updates einer Karte, größte positive Änderung gewinnt).
+- Wird nur bei Tab-Wechsel neu berechnet, keine Hintergrundaktualisierung.
+- Neu: `app/services/statistics_service.py`, `app/ui/widgets/statistics_panel.py`,
+  `app/ui/controllers/statistics_controller.py`. 15 neue Tests.
+
 ### Hinzugefügt — UI/Design-Überarbeitung
 - Neues, einziges dunkles Navy-Theme mit orange/gelben Akzenten (Light/Dark-
   Umschalter entfernt).
