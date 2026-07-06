@@ -45,9 +45,28 @@ status` zeigte den kompletten `data/`-Ordner als neu an) — jetzt blockweise
 ergänzt, `*.spec` selbst bleibt bewusst versioniert (Build-Konfiguration,
 kein Artefakt). Finaler kompletter Testlauf: 745 Tests grün, 0 Fehlschläge (Laufzeit
 45:53 min — durchgehend durch echte, teils langsame externe API-Aufrufe in
-einigen Tests, kein Zusammenhang mit den heutigen Änderungen). Noch offen
-zum Zeitpunkt dieses Eintrags: kurzer Live-Durchklick, der große
-Nachhol-Commit + Release-Prep-Commit + Git-Tag.
+einigen Tests, kein Zusammenhang mit den heutigen Änderungen). Live-
+Durchklick: App mit dem finalen Stand neu gestartet, Log fehlerfrei
+(Version korrekt "0.9.0-alpha.1"), Export/Sealed-Produkte heute nicht
+erneut angefasst und daher nicht separat nachgetestet.
+
+Zwei geplante Commits (Nachhol- + Release-Prep-Commit) wurden zu einem
+einzigen zusammengefasst: README.md/CHANGELOG.md/PROJECT_PROGRESS.md/
+`app/config.py` enthielten schon vor dem Commit eine untrennbare Mischung
+aus altem, historisch akkumuliertem Inhalt und den heutigen Release-Prep-
+Änderungen (README z. B. per `Write` komplett neu geschrieben, aber
+inhaltlich über die gesamte Feature-Historie) — eine saubere Trennung hätte
+riskantes zeilenweises `git add -p` auf einem 24k-Zeilen-Diff erfordert.
+Stattdessen: **ein** Commit `d52a756` ("Catch up on accumulated work since
+last commit, prepare v0.9.0-alpha.1"), 167 Dateien, +24156/-561 Zeilen,
+danach Tag `v0.9.0-alpha.1` gesetzt. `app/resources/icon - Kopie.ico`
+(alte Icon-Backup-Datei) bewusst vom Commit ausgeschlossen (liegt weiter
+unversioniert auf der Platte, dient weiter als informelle Sicherung).
+
+Damit ist die für heute besprochene Fertigstellung/Release-Vorbereitung
+komplett: committet, README aktuell, Version gesetzt, CHANGELOG-Release-
+Abschnitt geschnitten, volle Testsuite grün, eigenständige `.exe` gebaut
+und live verifiziert, getaggt.
 
 Davor: Die eben gebaute Standard-Sammlung "All Cards" (siehe
 voriger Absatz unten) wieder auf Nutzerwunsch komplett entfernt ("das will
