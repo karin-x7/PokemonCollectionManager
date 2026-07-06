@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -17,6 +19,7 @@ from app.models.card import CardDetailsValues
 from app.models.enums import Condition, Language, PriceQuality
 from app.models.price import PriceRecord
 from app.services.card_service import CardService
+from app.services.collection_service import CollectionService
 from app.ui.app import build_application
 from app.ui.controllers.card_controller import CardController
 from app.ui.widgets.card_detail_panel import CardDetailPanel
@@ -56,9 +59,10 @@ def collection_id(temp_db: Database) -> int:
 def controller(qapp, temp_db: Database) -> CardController:
     # No real network/filesystem access in unit tests.
     service = CardService(CardRepository(temp_db), image_downloader=lambda _card: None)
+    collection_service = CollectionService(CollectionRepository(temp_db))
     panel = CardListPanel()
     detail_panel = CardDetailPanel()
-    return CardController(panel, detail_panel, service)
+    return CardController(panel, detail_panel, service, collection_service)
 
 
 def _names(controller: CardController) -> list[str]:
@@ -86,6 +90,82 @@ def test_add_confirmed_persists_and_refreshes_panel(
     controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
 
     assert _names(controller) == ["Xatu"]
+
+
+def test_prompt_add_manual_no_collection_selected_shows_error(
+    monkeypatch, controller: CardController
+) -> None:
+    errors: list[str] = []
+    monkeypatch.setattr(controller._panel, "show_error", errors.append)
+    from app.pricing.models import ProductInfo
+
+    controller.prompt_add_manual(
+        ProductInfo(name="Venusaur", set_name="Legendary Collection", card_number="18"),
+        "https://cardmarket.com/x",
+    )
+
+    assert len(errors) == 1
+
+
+def test_manual_add_confirmed_persists_and_refreshes_panel(
+    controller: CardController, collection_id: int
+) -> None:
+    controller.set_collection(collection_id)
+
+    controller._panel.manual_add_confirmed.emit(
+        "Venusaur", "Legendary Collection", "18", _VALUES, None, ""
+    )
+
+    assert _names(controller) == ["Venusaur"]
+
+
+def test_manual_add_confirmed_finalizes_a_captured_photo(
+    controller: CardController, collection_id: int, tmp_path, monkeypatch
+) -> None:
+    # Mirrors the sealed-product photo capture: a manually-entered card now
+    # gets a screenshot-captured photo too (see ProductInfo.photo_path),
+    # moved from its temp capture file into its final, id-based location
+    # once the card's real id is known.
+    from app import config
+
+    monkeypatch.setattr(config, "PHOTOS_DIR", tmp_path / "photos")
+    temp_photo = tmp_path / "tmp_capture.png"
+    temp_photo.write_bytes(b"fake-png-bytes")
+    controller.set_collection(collection_id)
+
+    controller._panel.manual_add_confirmed.emit(
+        "Venusaur", "Legendary Collection", "18", _VALUES, str(temp_photo), ""
+    )
+
+    cards = controller._service.list_cards(collection_id)
+    assert len(cards) == 1
+    assert cards[0].photo_path is not None
+    assert Path(cards[0].photo_path).exists()
+    assert Path(cards[0].photo_path).name == f"manual_{cards[0].id}.png"
+    assert not temp_photo.exists()
+
+
+def test_manual_add_confirmed_stores_the_resolved_set_code(
+    controller: CardController, collection_id: int
+) -> None:
+    controller.set_collection(collection_id)
+
+    controller._panel.manual_add_confirmed.emit(
+        "Venusaur", "Legendary Collection", "18", _VALUES, None, "ex2"
+    )
+
+    cards = controller._service.list_cards(collection_id)
+    assert cards[0].set_code == "ex2"
+
+
+def test_collection_id_property_reflects_selection(
+    controller: CardController, collection_id: int
+) -> None:
+    assert controller.collection_id is None
+
+    controller.set_collection(collection_id)
+
+    assert controller.collection_id == collection_id
 
 
 def test_set_collection_minus_one_clears_panel(
@@ -117,6 +197,34 @@ def test_edit_requested_persists_changes(controller: CardController, collection_
     assert table.item(0, 6).text() == "5"  # Menge column
 
 
+def test_price_edit_requested_persists_manual_price(
+    controller: CardController, collection_id: int
+) -> None:
+    controller.set_collection(collection_id)
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
+    card_id = controller._panel.selected_card_id()
+
+    controller._panel.price_edit_requested.emit(card_id, 123.45)
+
+    card = controller._service.get_card(card_id)
+    assert card.current_price == 123.45
+    assert card.price_quality is PriceQuality.MANUAL
+
+
+def test_price_edit_requested_with_invalid_price_shows_error(
+    monkeypatch, controller: CardController, collection_id: int
+) -> None:
+    controller.set_collection(collection_id)
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
+    card_id = controller._panel.selected_card_id()
+    errors: list[str] = []
+    monkeypatch.setattr(controller._panel, "show_error", errors.append)
+
+    controller._panel.price_edit_requested.emit(card_id, -1.0)
+
+    assert len(errors) == 1
+
+
 def test_edit_requested_refreshes_detail_panel_even_when_row_index_is_unchanged(
     controller: CardController, collection_id: int
 ) -> None:
@@ -145,9 +253,71 @@ def test_delete_requested_removes_card(controller: CardController, collection_id
     controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
     card_id = controller._panel.selected_card_id()
 
-    controller._panel.delete_requested.emit(card_id)
+    controller._panel.delete_requested.emit([card_id])
 
     assert _names(controller) == []
+
+
+def test_delete_requested_with_multiple_ids_removes_all(
+    controller: CardController, collection_id: int
+) -> None:
+    controller.set_collection(collection_id)
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
+    first_id = controller._panel.selected_card_id()
+    controller._panel.add_confirmed.emit(
+        replace(_CATALOG_CARD, external_id="skg-h33", name="Aerodactyl"), _VALUES
+    )
+    second_id = controller._panel.selected_card_id()
+
+    controller._panel.delete_requested.emit([first_id, second_id])
+
+    assert _names(controller) == []
+
+
+def test_move_requested_moves_card_to_target_collection(
+    monkeypatch, controller: CardController, temp_db: Database, collection_id: int
+) -> None:
+    other_id = CollectionRepository(temp_db).create("Vintage 4").id
+    controller.set_collection(collection_id)
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
+    card_id = controller._panel.selected_card_id()
+
+    class FakeAcceptedMoveDialog:
+        def __call__(self, collections, parent=None):
+            self._collections = collections
+            return self
+
+        def exec(self):
+            from PySide6.QtWidgets import QDialog
+
+            return QDialog.DialogCode.Accepted
+
+        def get_target_collection_id(self):
+            return other_id
+
+    monkeypatch.setattr(
+        "app.ui.controllers.card_controller.MoveDialog", FakeAcceptedMoveDialog()
+    )
+
+    controller._panel.move_requested.emit([card_id])
+
+    assert _names(controller) == []  # moved away from the currently selected collection
+    controller.set_collection(other_id)
+    assert _names(controller) == ["Xatu"]
+
+
+def test_move_requested_no_other_collection_shows_error(
+    monkeypatch, controller: CardController, collection_id: int
+) -> None:
+    controller.set_collection(collection_id)
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
+    card_id = controller._panel.selected_card_id()
+    errors: list[str] = []
+    monkeypatch.setattr(controller._panel, "show_error", errors.append)
+
+    controller._panel.move_requested.emit([card_id])
+
+    assert len(errors) == 1
 
 
 def test_selection_changed_updates_detail_panel(
@@ -198,11 +368,14 @@ def test_showing_a_card_also_shows_its_price_history_when_repository_given(
     qapp, temp_db: Database, collection_id: int
 ) -> None:
     service = CardService(CardRepository(temp_db), image_downloader=lambda _card: None)
+    collection_service = CollectionService(CollectionRepository(temp_db))
     prices = PriceRepository(temp_db)
     panel = CardListPanel()
     detail_panel = CardDetailPanel()
     dock = PriceHistoryDock()
-    controller = CardController(panel, detail_panel, service, prices, history_dock=dock)
+    controller = CardController(
+        panel, detail_panel, service, collection_service, prices, history_dock=dock
+    )
     controller.set_collection(collection_id)
     controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
     card_id = controller._panel.selected_card_id()
@@ -223,11 +396,14 @@ def test_history_reset_requested_deletes_records_and_refreshes_dock(
     qapp, temp_db: Database, collection_id: int
 ) -> None:
     service = CardService(CardRepository(temp_db), image_downloader=lambda _card: None)
+    collection_service = CollectionService(CollectionRepository(temp_db))
     prices = PriceRepository(temp_db)
     panel = CardListPanel()
     detail_panel = CardDetailPanel()
     dock = PriceHistoryDock()
-    controller = CardController(panel, detail_panel, service, prices, history_dock=dock)
+    controller = CardController(
+        panel, detail_panel, service, collection_service, prices, history_dock=dock
+    )
     controller.set_collection(collection_id)
     controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
     card_id = controller._panel.selected_card_id()

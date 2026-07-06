@@ -15,3 +15,9 @@ requests>=2.31,<3
 # directly to identify the actual foreground window rather than scanning
 # every open window by title.
 pywinauto>=0.6.9,<0.7
+
+# Excel (.xlsx) export — used from Step 11.
+openpyxl>=3.1,<4
+
+# PDF export — used from Step 11.
+reportlab>=4.0,<5

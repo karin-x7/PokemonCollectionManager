@@ -1,0 +1,4 @@
+# Packaging-only dependency: builds the standalone Windows .exe.
+-r requirements.txt
+
+pyinstaller>=6.0,<7

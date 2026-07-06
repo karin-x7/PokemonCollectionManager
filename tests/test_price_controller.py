@@ -48,9 +48,13 @@ class FakeCardController:
 class FakeStatisticsController:
     def __init__(self) -> None:
         self.refresh_calls = 0
+        self.bulk_running_calls: list[bool] = []
 
     def refresh(self) -> None:
         self.refresh_calls += 1
+
+    def set_bulk_card_update_running(self, running: bool) -> None:
+        self.bulk_running_calls.append(running)
 
 
 @pytest.fixture(scope="module")
@@ -102,7 +106,7 @@ def test_lookup_with_no_price_found_still_refreshes(main_window: MainWindow) -> 
     main_window.card_detail_panel.price_lookup_requested.emit(1)
 
     assert card_controller.refresh_calls == 1
-    assert "Kein Preis" in main_window.statusBar().currentMessage()
+    assert "No price found" in main_window.statusBar().currentMessage()
 
 
 def test_service_error_shows_message_and_does_not_refresh(main_window: MainWindow) -> None:
@@ -159,6 +163,63 @@ def test_successful_lookup_also_refreshes_statistics_controller_if_given(
     main_window.card_detail_panel.price_lookup_requested.emit(1)
 
     assert statistics_controller.refresh_calls == 1
+
+
+def test_bulk_update_looks_up_every_card_in_order_and_refreshes_each_time(
+    main_window: MainWindow,
+) -> None:
+    service = FakePriceService(card=_PRICED_CARD)
+    card_controller = FakeCardController()
+    controller = _controller(main_window, service, card_controller)
+
+    controller.start_bulk_update([1, 2, 3])
+
+    assert service.calls == [1, 2, 3]
+    assert card_controller.refresh_calls == 3
+    assert "aktualisiert" in main_window.statusBar().currentMessage()
+
+
+def test_bulk_update_toggles_statistics_controller_running_state(
+    main_window: MainWindow,
+) -> None:
+    service = FakePriceService(card=_PRICED_CARD)
+    card_controller = FakeCardController()
+    statistics_controller = FakeStatisticsController()
+    controller = PriceController(
+        main_window,
+        main_window.card_detail_panel,
+        lambda: (service, None),
+        card_controller,
+        statistics_controller=statistics_controller,
+    )
+
+    controller.start_bulk_update([1, 2])
+
+    assert statistics_controller.bulk_running_calls == [True, False]
+
+
+def test_bulk_update_is_ignored_while_a_lookup_is_already_running(
+    monkeypatch, main_window: MainWindow
+) -> None:
+    service = FakePriceService(card=_PRICED_CARD)
+    card_controller = FakeCardController()
+    controller = _controller(main_window, service, card_controller)
+
+    monkeypatch.setattr(PriceLookupWorker, "start", lambda self: self.run())
+    controller.start_lookup(1)
+    controller.start_bulk_update([2, 3])
+
+    assert service.calls == [1]
+
+
+def test_bulk_update_with_empty_list_does_nothing(main_window: MainWindow) -> None:
+    service = FakePriceService(card=_PRICED_CARD)
+    card_controller = FakeCardController()
+    controller = _controller(main_window, service, card_controller)
+
+    controller.start_bulk_update([])
+
+    assert service.calls == []
 
 
 def test_statistics_panel_button_triggers_the_same_lookup(main_window: MainWindow) -> None:

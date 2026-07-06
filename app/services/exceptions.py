@@ -1,10 +1,12 @@
 """Domain-level exceptions raised by the services layer.
 
-The UI catches these to show friendly, German-language messages instead of
-raw SQL errors.
+The UI catches these to show friendly messages (translated per the current
+UI language, see :mod:`app.i18n`) instead of raw SQL errors.
 """
 
 from __future__ import annotations
+
+from app.i18n import tr
 
 
 class ServiceError(Exception):
@@ -20,7 +22,7 @@ class DuplicateCollectionError(ServiceError):
 
     def __init__(self, name: str) -> None:
         self.name = name
-        super().__init__(f"Eine Sammlung mit dem Namen „{name}“ existiert bereits.")
+        super().__init__(tr("Eine Sammlung mit dem Namen „{name}“ existiert bereits.").format(name=name))
 
 
 class CollectionNotFoundError(ServiceError):
@@ -28,7 +30,9 @@ class CollectionNotFoundError(ServiceError):
 
     def __init__(self, collection_id: int) -> None:
         self.collection_id = collection_id
-        super().__init__(f"Sammlung mit ID {collection_id} wurde nicht gefunden.")
+        super().__init__(
+            tr("Sammlung mit ID {id} wurde nicht gefunden.").format(id=collection_id)
+        )
 
 
 class CatalogSearchError(ServiceError):
@@ -40,4 +44,14 @@ class CardNotFoundError(ServiceError):
 
     def __init__(self, card_id: int) -> None:
         self.card_id = card_id
-        super().__init__(f"Karte mit ID {card_id} wurde nicht gefunden.")
+        super().__init__(tr("Karte mit ID {id} wurde nicht gefunden.").format(id=card_id))
+
+
+class SealedProductNotFoundError(ServiceError):
+    """Raised when a sealed product id does not exist."""
+
+    def __init__(self, product_id: int) -> None:
+        self.product_id = product_id
+        super().__init__(
+            tr("Sealed-Produkt mit ID {id} wurde nicht gefunden.").format(id=product_id)
+        )

@@ -9,9 +9,11 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import replace
 
+from app.catalog.name_translation import translate_to_english
 from app.database.connection import Database
 from app.models.card import Card, CardDetailsValues, CardFilter
 from app.models.enums import Condition, Language, PriceQuality
+from app.utils.text_normalize import normalize_for_search
 from app.utils.time import utc_now_iso
 
 
@@ -34,6 +36,7 @@ def _row_to_card(row: sqlite3.Row) -> Card:
         photo_path=row["photo_path"],
         external_card_id=row["external_card_id"],
         cardmarket_url=row["cardmarket_url"],
+        manual_cardmarket_url=row["manual_cardmarket_url"],
         current_price=row["current_price"],
         price_currency=row["price_currency"],
         price_quality=PriceQuality.from_value(row["price_quality"]),
@@ -81,9 +84,26 @@ class CardRepository:
             params.append(card_filter.collection_id)
         text = card_filter.search_text.strip()
         if text:
-            clauses.append("(name LIKE ? OR set_name LIKE ? OR card_number LIKE ? OR notes LIKE ?)")
-            like = f"%{text}%"
-            params.extend([like, like, like, like])
+            # normalize_text() (registered on the connection) folds accents
+            # and punctuation the same way catalog search does, so "Turtok"
+            # matches a card stored as "Blastoise" and "poképad"/"pokepad"
+            # match each other. The translated term (if any) is OR-ed in as
+            # its own group of the same four columns.
+            terms = [normalize_for_search(text)]
+            translated = translate_to_english(text)
+            if translated:
+                normalized_translated = normalize_for_search(translated)
+                if normalized_translated not in terms:
+                    terms.append(normalized_translated)
+            group_clauses = []
+            for term in terms:
+                group_clauses.append(
+                    "(normalize_text(name) LIKE ? OR normalize_text(set_name) LIKE ? "
+                    "OR normalize_text(card_number) LIKE ? OR normalize_text(notes) LIKE ?)"
+                )
+                like = f"%{term}%"
+                params.extend([like, like, like, like])
+            clauses.append("(" + " OR ".join(group_clauses) + ")")
         if card_filter.set_name:
             clauses.append("set_name = ?")
             params.append(card_filter.set_name)
@@ -140,10 +160,11 @@ class CardRepository:
                     is_reverse_holo, is_signed, is_first_edition, is_altered,
                     quantity, notes,
                     photo_path, external_card_id, cardmarket_url,
+                    manual_cardmarket_url,
                     current_price, price_currency, price_quality,
                     price_rationale, price_updated_at, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     card.collection_id,
@@ -162,6 +183,7 @@ class CardRepository:
                     card.photo_path,
                     card.external_card_id,
                     card.cardmarket_url,
+                    card.manual_cardmarket_url,
                     card.current_price,
                     card.price_currency,
                     card.price_quality.value,
@@ -181,7 +203,8 @@ class CardRepository:
                 UPDATE cards
                 SET language = ?, condition = ?,
                     is_reverse_holo = ?, is_signed = ?, is_first_edition = ?,
-                    is_altered = ?, quantity = ?, notes = ?, updated_at = ?
+                    is_altered = ?, quantity = ?, notes = ?,
+                    manual_cardmarket_url = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -193,6 +216,7 @@ class CardRepository:
                     int(values.is_altered),
                     values.quantity,
                     values.notes,
+                    values.manual_cardmarket_url or None,
                     utc_now_iso(),
                     card_id,
                 ),
@@ -226,6 +250,39 @@ class CardRepository:
             self._conn.execute(
                 "UPDATE cards SET cardmarket_url = ?, updated_at = ? WHERE id = ?",
                 (cardmarket_url, utc_now_iso(), card_id),
+            )
+
+    def update_manual_cardmarket_url(self, card_id: int, manual_cardmarket_url: str) -> None:
+        """Set a card's own Cardmarket link override, e.g. once the user has
+
+        confirmed a result from the "Cardmarket-Link suchen" flow. A
+        dedicated method rather than routing through ``update_details``
+        (which would need every other editable field re-supplied just to
+        change this one) -- mirrors ``update_cardmarket_url`` above."""
+        with self._conn:
+            self._conn.execute(
+                "UPDATE cards SET manual_cardmarket_url = ?, updated_at = ? WHERE id = ?",
+                (manual_cardmarket_url, utc_now_iso(), card_id),
+            )
+
+    def update_photo_path(self, card_id: int, photo_path: str) -> None:
+        """Backfill a manually-entered card's photo path once its screenshot
+
+        capture (which needs the card's real, post-insert id for its
+        filename) has finished moving the temp file into place -- mirrors
+        ``SealedProductRepository.update_photo_path``."""
+        with self._conn:
+            self._conn.execute(
+                "UPDATE cards SET photo_path = ?, updated_at = ? WHERE id = ?",
+                (photo_path, utc_now_iso(), card_id),
+            )
+
+    def move(self, card_id: int, target_collection_id: int) -> None:
+        """Move a card to a different collection."""
+        with self._conn:
+            self._conn.execute(
+                "UPDATE cards SET collection_id = ?, updated_at = ? WHERE id = ?",
+                (target_collection_id, utc_now_iso(), card_id),
             )
 
     def delete(self, card_id: int) -> None:

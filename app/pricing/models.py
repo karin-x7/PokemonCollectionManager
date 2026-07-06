@@ -22,3 +22,83 @@ class CardmarketOffer:
     language: Language | None
     price: float
     comment: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ProductInfo:
+    """Name/set/card-number parsed off a Cardmarket product page's own title.
+
+    ``card_number`` is blank for products with no printed number (e.g. some
+    promos) — callers should treat it as a starting point to confirm/edit,
+    not an infallible value.
+    """
+
+    name: str
+    set_name: str
+    card_number: str
+    #: Path to a temporary file holding a best-effort screenshot capture of
+    #: the card's photo, or ``None`` if the capture wasn't attempted or
+    #: failed -- see ``app.pricing.sealed_image_capture`` (reused as-is: the
+    #: capture logic itself has nothing sealed-product-specific about it).
+    #: The caller is responsible for moving this temp file to its final
+    #: location once the card's real id is known.
+    photo_path: str | None = None
+    #: pokemontcg.io ``set.id``, resolved best-effort from ``set_name`` via
+    #: ``PokemonTcgClient.resolve_set_code`` (see its own docs) -- lets a
+    #: manually-entered card show the same set icon a catalogue-matched one
+    #: gets. Blank if not resolved (e.g. a network error, or no matching
+    #: catalogue set at all) -- never blocks adding the card either way.
+    set_code: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CardmarketSearchResult:
+    """A single candidate product from Cardmarket's own site search.
+
+    No URL yet: Cardmarket's UI Automation tree only ever exposes a search
+    result link's visible text, never its actual href -- ``raw_text`` is
+    kept so the same link can be found again (matched by this exact text)
+    and clicked through to recover its real URL, see
+    ``resolve_cardmarket_search_result``.
+    """
+
+    name: str
+    set_name: str
+    card_number: str
+    price_hint: str
+    raw_text: str
+
+
+@dataclass(frozen=True, slots=True)
+class SealedOffer:
+    """A single seller offer read from a Cardmarket sealed-product page.
+
+    No ``condition`` field -- Cardmarket only ever sells sealed products
+    sealed ("Opened products cannot be sold", confirmed live on a real
+    product page), so there is no condition ladder to match on, unlike
+    single cards.
+    """
+
+    seller: str
+    language: Language | None
+    price: float
+    comment: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SealedProductInfo:
+    """Name/category parsed off a Cardmarket sealed-product page.
+
+    ``category`` (e.g. "Booster Box", "Elite Trainer Box") comes from the
+    page's own breadcrumb where it could be found; blank if not -- callers
+    should treat it as a starting point to confirm/edit, not infallible.
+    """
+
+    name: str
+    category: str
+    #: Path to a temporary file holding a best-effort screenshot capture of
+    #: the product's photo, or ``None`` if the capture wasn't attempted or
+    #: failed -- see ``app.pricing.sealed_image_capture``. The caller is
+    #: responsible for moving this temp file to its final location once the
+    #: product's real id is known.
+    photo_path: str | None = None

@@ -13,8 +13,10 @@ from pathlib import Path
 from types import TracebackType
 
 from app import config
+from app.database.backup import backup_database
 from app.database.migrations import run_migrations
 from app.logging_config import get_logger
+from app.utils.text_normalize import normalize_for_search
 
 logger = get_logger(__name__)
 
@@ -51,16 +53,28 @@ class Database:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
         conn.execute("PRAGMA journal_mode = WAL;")
+        # Lets SQL queries fold accents/punctuation (e.g. "Poképad" vs.
+        # "pokepad") the same way CardRepository.search's free-text matching
+        # does -- plain SQLite LIKE is only case-insensitive for ASCII.
+        conn.create_function("normalize_text", 1, normalize_for_search)
         self._conn = conn
         logger.info("Connected to database at %s", self._path)
         return conn
 
     def initialize(self) -> int:
-        """Ensure the connection is open and the schema is migrated.
+        """Back up the database file, then ensure the connection is open and
+
+        the schema is migrated.
 
         Returns:
             The number of migrations applied.
         """
+        # Backed up *before* connecting at all -- sqlite3.connect() itself
+        # creates an empty file if none exists yet, which would otherwise
+        # make a brand-new install look like it "already has" a database to
+        # back up.
+        if self._path.exists():
+            backup_database(self._path)
         applied = run_migrations(self.connection)
         logger.info("Database initialised (%d migration(s) applied).", applied)
         return applied

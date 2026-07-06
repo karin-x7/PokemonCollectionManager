@@ -72,3 +72,16 @@ def test_set_results_with_empty_list_shows_empty_state(qapp) -> None:
     # whether the (never-shown, headless) top-level dialog itself is visible.
     assert not dialog._empty_label.isHidden()
     assert not dialog._add_button.isEnabled()
+
+
+def test_shows_a_loading_state_before_any_results_arrive(qapp) -> None:
+    dialog = CatalogSearchResultsDialog()
+
+    assert not dialog._loading_label.isHidden()
+    assert not dialog._loading_bar.isHidden()
+    assert dialog._table.isHidden()
+
+
+def test_set_results_hides_the_loading_state(dialog: CatalogSearchResultsDialog) -> None:
+    assert dialog._loading_label.isHidden()
+    assert dialog._loading_bar.isHidden()

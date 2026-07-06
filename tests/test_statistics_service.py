@@ -10,11 +10,14 @@ from app.database.connection import Database
 from app.database.repositories.card_repository import CardRepository
 from app.database.repositories.collection_repository import CollectionRepository
 from app.database.repositories.price_repository import PriceRepository
+from app.database.repositories.sealed_product_repository import SealedProductRepository
 from app.models.card import Card
 from app.models.enums import Condition, Language, PriceQuality
 from app.models.price import PriceRecord
+from app.models.sealed_product import SealedProduct
 from app.services.card_service import CardService
 from app.services.collection_service import CollectionService
+from app.services.sealed_product_service import SealedProductService
 from app.services.statistics_service import STALE_PRICE_THRESHOLD_DAYS, StatisticsService
 
 _FIXED_NOW = datetime(2026, 7, 4, tzinfo=timezone.utc)
@@ -36,11 +39,17 @@ def collections(temp_db: Database) -> CollectionRepository:
 
 
 @pytest.fixture
+def sealed_products(temp_db: Database) -> SealedProductRepository:
+    return SealedProductRepository(temp_db)
+
+
+@pytest.fixture
 def service(temp_db: Database) -> StatisticsService:
     return StatisticsService(
         CardService(CardRepository(temp_db), image_downloader=lambda _card: None),
         CollectionService(CollectionRepository(temp_db)),
         PriceRepository(temp_db),
+        SealedProductService(SealedProductRepository(temp_db)),
         now=lambda: _FIXED_NOW,
     )
 
@@ -61,16 +70,36 @@ def _card(collection_id: int, **overrides) -> Card:
     return Card(**base)
 
 
+def _sealed(**overrides) -> SealedProduct:
+    base = dict(
+        id=None,
+        name="Base Set Booster Box",
+        category="Booster Box",
+        language=Language.ENGLISH,
+        quantity=1,
+        current_price=None,
+        price_quality=PriceQuality.NO_PRICE,
+    )
+    base.update(overrides)
+    return SealedProduct(**base)
+
+
 def test_compute_overview_with_no_cards_at_all(service: StatisticsService) -> None:
     overview = service.compute_overview()
 
     assert overview.per_collection == []
     assert overview.grand_total == 0.0
+    assert overview.combined_total == 0.0
     assert overview.as_of is None
     assert overview.value_by_set == []
     assert overview.most_expensive_cards == []
     assert overview.biggest_price_increase is None
     assert overview.stale_price_cards == []
+    assert overview.sealed_total_value == 0.0
+    assert overview.sealed_item_count == 0
+    assert overview.value_by_sealed_category == []
+    assert overview.most_expensive_sealed_products == []
+    assert overview.sealed_stale_price_products == []
 
 
 def test_per_collection_totals_and_grand_total(
@@ -130,6 +159,22 @@ def test_value_breakdowns_grouped_and_sorted_descending(
 
     assert [entry.label for entry in overview.value_by_set] == ["Skyridge", "Base"]
     assert [entry.label for entry in overview.value_by_language] == ["English", "German"]
+
+
+def test_value_by_set_carries_the_set_code_for_its_icon(
+    service: StatisticsService, cards: CardRepository, collections: CollectionRepository
+) -> None:
+    binder = collections.create("Binder")
+    cards.create(
+        _card(binder.id, set_name="Skyridge", set_code="skg", current_price=50.0)
+    )
+
+    overview = service.compute_overview()
+
+    assert overview.value_by_set[0].set_code == "skg"
+    # Language/condition breakdowns group by something other than the set --
+    # they don't have a matching set icon to show, so this stays unset.
+    assert overview.value_by_language[0].set_code is None
 
 
 def test_most_expensive_cards_sorted_descending_and_excludes_unpriced(
@@ -275,3 +320,69 @@ def test_stale_price_cards_sorted_most_overdue_first(
 
     names = [entry.card.name for entry in overview.stale_price_cards]
     assert names == ["MoreStale", "LessStale"]
+
+
+# --- Sealed products (not collection-scoped, see app/models/sealed_product.py) --- #
+
+
+def test_sealed_total_and_combined_total(
+    service: StatisticsService,
+    cards: CardRepository,
+    collections: CollectionRepository,
+    sealed_products: SealedProductRepository,
+) -> None:
+    binder = collections.create("Binder")
+    cards.create(_card(binder.id, name="Xatu", current_price=10.0, quantity=1))
+    sealed_products.create(_sealed(name="Base Set Booster Box", current_price=5000.0, quantity=1))
+    sealed_products.create(_sealed(name="Evolutions ETB", current_price=50.0, quantity=2))
+
+    overview = service.compute_overview()
+
+    assert overview.grand_total == 10.0
+    assert overview.sealed_total_value == 5100.0  # 5000 + 50*2
+    assert overview.combined_total == 5110.0
+    assert overview.sealed_item_count == 3  # 1 + 2
+
+
+def test_sealed_value_by_category_grouped_and_sorted_descending(
+    service: StatisticsService, sealed_products: SealedProductRepository
+) -> None:
+    sealed_products.create(_sealed(name="Tin A", category="Tin", current_price=20.0))
+    sealed_products.create(
+        _sealed(name="Base Set Booster Box", category="Booster Box", current_price=5000.0)
+    )
+
+    overview = service.compute_overview()
+
+    assert [entry.label for entry in overview.value_by_sealed_category] == [
+        "Booster Box",
+        "Tin",
+    ]
+
+
+def test_most_expensive_sealed_products_sorted_and_excludes_unpriced(
+    service: StatisticsService, sealed_products: SealedProductRepository
+) -> None:
+    sealed_products.create(_sealed(name="Cheap", current_price=5.0))
+    sealed_products.create(_sealed(name="Pricey", current_price=5000.0))
+    sealed_products.create(_sealed(name="Unpriced", current_price=None))
+
+    overview = service.compute_overview()
+
+    names = [product.name for product in overview.most_expensive_sealed_products]
+    assert names == ["Pricey", "Cheap"]
+
+
+def test_sealed_stale_price_products_includes_never_priced_first(
+    service: StatisticsService, sealed_products: SealedProductRepository
+) -> None:
+    sealed_products.create(_sealed(name="NeverPriced", price_updated_at=None))
+    old_timestamp = (_FIXED_NOW - timedelta(days=STALE_PRICE_THRESHOLD_DAYS + 10)).isoformat()
+    sealed_products.create(_sealed(name="VeryStale", price_updated_at=old_timestamp))
+    recent_timestamp = (_FIXED_NOW - timedelta(days=1)).isoformat()
+    sealed_products.create(_sealed(name="Fresh", price_updated_at=recent_timestamp))
+
+    overview = service.compute_overview()
+
+    names = [entry.product.name for entry in overview.sealed_stale_price_products]
+    assert names == ["NeverPriced", "VeryStale"]

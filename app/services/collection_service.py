@@ -11,6 +11,7 @@ from __future__ import annotations
 import sqlite3
 
 from app.database.repositories.collection_repository import CollectionRepository
+from app.i18n import tr
 from app.logging_config import get_logger
 from app.models.collection import Collection
 from app.services.exceptions import (
@@ -32,10 +33,12 @@ def _clean_name(name: str) -> str:
     """
     cleaned = name.strip()
     if not cleaned:
-        raise ValidationError("Der Name einer Sammlung darf nicht leer sein.")
+        raise ValidationError(tr("Der Name einer Sammlung darf nicht leer sein."))
     if len(cleaned) > _MAX_NAME_LENGTH:
         raise ValidationError(
-            f"Der Name darf höchstens {_MAX_NAME_LENGTH} Zeichen lang sein."
+            tr("Der Name darf höchstens {max_length} Zeichen lang sein.").format(
+                max_length=_MAX_NAME_LENGTH
+            )
         )
     return cleaned
 

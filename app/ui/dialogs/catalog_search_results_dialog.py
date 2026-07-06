@@ -12,21 +12,33 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QDialog,
     QDialogButtonBox,
     QHeaderView,
     QLabel,
+    QProgressBar,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
 )
 
 from app.catalog.models import CatalogCard
+from app.i18n import tr
+from app.ui.dialogs.dimmed_dialog import DimmedDialog
+from app.ui.set_icon_provider import get_set_icon
 
-_COLUMNS = ["Name", "Set", "Nr.", "Rarität"]
+
+def _columns() -> list[str]:
+    # A function, not a module-level constant: tr() must run when the dialog
+    # is actually built (after MainWindow has loaded the persisted UI
+    # language), not once at import time, which would always bake in
+    # whatever language was still the default at that point.
+    return ["Name", "Set", "Nr.", tr("Rarität")]
 
 
-class CatalogSearchResultsDialog(QDialog):
+_SET_COLUMN = 1
+
+
+class CatalogSearchResultsDialog(DimmedDialog):
     """Read-only list of catalogue search matches, selectable to add."""
 
     #: Emitted with the selected CatalogCard when "Hinzufügen" is clicked.
@@ -34,21 +46,37 @@ class CatalogSearchResultsDialog(QDialog):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Suchergebnisse")
+        self.setWindowTitle(tr("Suchergebnisse"))
         self.resize(560, 400)
         self._matches: list[CatalogCard] = []
         self._build()
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
+        columns = _columns()
 
-        self._empty_label = QLabel("Keine Treffer.")
+        # Shown from the moment the dialog opens until set_results() is
+        # called -- the search itself is a blocking network call and popping
+        # the dialog up empty in the meantime made the whole app look frozen
+        # (live-reported point of confusion).
+        self._loading_label = QLabel(tr("Suche läuft…"))
+        self._loading_label.setObjectName("SearchLoadingLabel")
+        self._loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._loading_label)
+        self._loading_bar = QProgressBar()
+        self._loading_bar.setObjectName("SearchLoadingBar")
+        self._loading_bar.setRange(0, 0)  # indeterminate
+        self._loading_bar.setTextVisible(False)
+        layout.addWidget(self._loading_bar)
+
+        self._empty_label = QLabel(tr("Keine Treffer."))
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_label.hide()
         layout.addWidget(self._empty_label)
 
-        self._table = QTableWidget(0, len(_COLUMNS))
-        self._table.setHorizontalHeaderLabels(_COLUMNS)
+        self._table = QTableWidget(0, len(columns))
+        self._table.hide()
+        self._table.setHorizontalHeaderLabels(columns)
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -56,7 +84,7 @@ class CatalogSearchResultsDialog(QDialog):
         self._table.itemSelectionChanged.connect(self._update_add_button_enabled)
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for col in range(1, len(_COLUMNS)):
+        for col in range(1, len(columns)):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self._table, stretch=1)
 
@@ -65,7 +93,7 @@ class CatalogSearchResultsDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.button(QDialogButtonBox.StandardButton.Close).clicked.connect(self.accept)
         self._add_button = buttons.addButton(
-            "Hinzufügen", QDialogButtonBox.ButtonRole.ActionRole
+            tr("Hinzufügen"), QDialogButtonBox.ButtonRole.ActionRole
         )
         self._add_button.clicked.connect(self._on_add_clicked)
         self._update_add_button_enabled()
@@ -73,6 +101,8 @@ class CatalogSearchResultsDialog(QDialog):
 
     def set_results(self, matches: list[CatalogCard]) -> None:
         """Populate the table with search matches (or show the empty state)."""
+        self._loading_label.hide()
+        self._loading_bar.hide()
         self._matches = matches
         self._empty_label.setVisible(not matches)
         self._table.setVisible(bool(matches))
@@ -83,6 +113,10 @@ class CatalogSearchResultsDialog(QDialog):
                 item = QTableWidgetItem(value)
                 if col >= 2:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if col == _SET_COLUMN:
+                    set_icon = get_set_icon(card.set_code, card.set_name)
+                    if set_icon is not None:
+                        item.setIcon(set_icon)
                 self._table.setItem(row, col, item)
         self._update_add_button_enabled()
 

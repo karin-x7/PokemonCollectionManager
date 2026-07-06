@@ -1,6 +1,6 @@
 [project]
 name = "pokemon-collection-manager"
-version = "0.1.0"
+version = "0.9.0-alpha.1"
 description = "Desktop manager for a Pokémon card collection with Cardmarket-based price discovery."
 requires-python = ">=3.13"
 readme = "README.md"

@@ -60,6 +60,53 @@ def test_prefills_from_initial(qapp) -> None:
     assert values == initial
 
 
+def test_manual_cardmarket_url_round_trips_and_blank_becomes_none(qapp) -> None:
+    dialog = CardDetailsDialog(
+        title="Karte bearbeiten",
+        accept_label="Speichern",
+        display_name="Ho-Oh",
+        display_set="Neo Revelation",
+        display_number="7",
+    )
+
+    dialog._manual_cardmarket_url_edit.setText("  https://example.com/awakening-legends  ")
+    assert dialog.get_values().manual_cardmarket_url == "https://example.com/awakening-legends"
+
+    dialog._manual_cardmarket_url_edit.setText("   ")
+    assert dialog.get_values().manual_cardmarket_url is None
+
+
+def test_editable_identity_prefills_and_returns_edited_values(qapp) -> None:
+    dialog = CardDetailsDialog(
+        title="Karte manuell eintragen",
+        accept_label="Hinzufügen",
+        display_name="Venusaur",
+        display_set="Legendary Collection",
+        display_number="18",
+        editable_identity=True,
+    )
+
+    assert dialog.get_identity() == ("Venusaur", "Legendary Collection", "18")
+
+    dialog._name_edit.setText("  Bisaflor  ")
+    dialog._set_edit.setText(" Legendary Collection ")
+    dialog._number_edit.setText("")
+
+    assert dialog.get_identity() == ("Bisaflor", "Legendary Collection", "")
+
+
+def test_non_editable_identity_shows_plain_labels(qapp) -> None:
+    dialog = CardDetailsDialog(
+        title="Karte hinzufügen",
+        accept_label="Hinzufügen",
+        display_name="Xatu",
+        display_set="Skyridge",
+        display_number="H32",
+    )
+
+    assert not hasattr(dialog, "_name_edit")
+
+
 def test_extras_checkboxes_round_trip(qapp) -> None:
     dialog = CardDetailsDialog(
         title="Karte hinzufügen",

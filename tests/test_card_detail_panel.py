@@ -72,7 +72,7 @@ def test_show_card_with_non_reverse_variant_passes_false(
 def test_extras_field_lists_active_flags(panel: CardDetailPanel) -> None:
     panel.show_card(_card(is_reverse_holo=True, is_signed=True, is_altered=True))
 
-    assert panel._value_labels["Extra"].text() == "Reverse Holo, Signiert, Altered"
+    assert panel._value_labels["Extra"].text() == "Reverse Holo, Signed, Altered"
 
 
 def test_extras_field_shows_dash_when_none_apply(panel: CardDetailPanel) -> None:

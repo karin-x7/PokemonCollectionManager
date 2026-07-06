@@ -21,10 +21,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.i18n import tr
 from app.models.card import CardFilter
 from app.models.enums import Condition, Language
 
-_ALL = "Alle"
+
+def _all_label() -> str:
+    # A function, not a module-level constant: tr() must run once the UI
+    # language has been loaded (see app/i18n.py), not at import time.
+    return tr("Alle")
 
 
 class CardFilterBar(QWidget):
@@ -55,20 +60,20 @@ class CardFilterBar(QWidget):
         outer.addLayout(top_row)
 
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Suche (Name, Set, Nummer, Notizen) …")
+        self._search.setPlaceholderText(tr("Suche (Name, Set, Nummer, Notizen) …"))
         self._search.setClearButtonEnabled(True)
         self._search.setMinimumWidth(160)
         self._search.textChanged.connect(self._emit_filter_changed)
         top_row.addWidget(self._search, stretch=2)
 
         self._set_combo = QComboBox()
-        self._set_combo.addItem(_ALL)
+        self._set_combo.addItem(_all_label())
         self._set_combo.setMinimumWidth(110)
         self._set_combo.currentIndexChanged.connect(self._emit_filter_changed)
         top_row.addWidget(self._set_combo, stretch=1)
 
         self._language_combo = QComboBox()
-        self._language_combo.addItem(_ALL)
+        self._language_combo.addItem(_all_label())
         for language in Language:
             self._language_combo.addItem(language.label, language)
         self._language_combo.setMinimumWidth(110)
@@ -76,7 +81,7 @@ class CardFilterBar(QWidget):
         top_row.addWidget(self._language_combo, stretch=1)
 
         self._condition_combo = QComboBox()
-        self._condition_combo.addItem(_ALL)
+        self._condition_combo.addItem(_all_label())
         for condition in Condition:
             self._condition_combo.addItem(condition.label, condition)
         self._condition_combo.setMinimumWidth(110)
@@ -88,26 +93,26 @@ class CardFilterBar(QWidget):
         outer.addLayout(bottom_row)
 
         self._min_price = QLineEdit()
-        self._min_price.setPlaceholderText("Preis von")
+        self._min_price.setPlaceholderText(tr("Preis von"))
         self._min_price.setMinimumWidth(90)
         self._min_price.setMaximumWidth(110)
         self._min_price.textChanged.connect(self._emit_filter_changed)
         bottom_row.addWidget(self._min_price)
 
         self._max_price = QLineEdit()
-        self._max_price.setPlaceholderText("bis")
+        self._max_price.setPlaceholderText(tr("bis"))
         self._max_price.setMinimumWidth(90)
         self._max_price.setMaximumWidth(110)
         self._max_price.textChanged.connect(self._emit_filter_changed)
         bottom_row.addWidget(self._max_price)
 
-        self._all_collections = QCheckBox("Alle Sammlungen")
+        self._all_collections = QCheckBox(tr("Alle Sammlungen"))
         self._all_collections.toggled.connect(self.scope_changed)
         bottom_row.addWidget(self._all_collections)
 
         bottom_row.addStretch(1)
 
-        reset_button = QPushButton("Zurücksetzen")
+        reset_button = QPushButton(tr("Zurücksetzen"))
         reset_button.setObjectName("Secondary")
         reset_button.clicked.connect(self.reset)
         bottom_row.addWidget(reset_button)
@@ -119,7 +124,7 @@ class CardFilterBar(QWidget):
         current = self._set_combo.currentText()
         self._set_combo.blockSignals(True)
         self._set_combo.clear()
-        self._set_combo.addItem(_ALL)
+        self._set_combo.addItem(_all_label())
         self._set_combo.addItems(set_names)
         index = self._set_combo.findText(current)
         self._set_combo.setCurrentIndex(index if index >= 0 else 0)

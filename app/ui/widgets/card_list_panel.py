@@ -7,6 +7,12 @@ corresponding dialog — dialogs are interaction, not business logic; real
 validation/persistence runs exclusively via
 :class:`~app.services.card_service.CardService` through
 :class:`~app.ui.controllers.card_controller.CardController`.
+
+The table allows selecting multiple rows (Shift/Ctrl-click, like a normal
+spreadsheet) -- ``delete_requested``/``move_requested`` always carry a list
+of card ids (one or more), never a bare id, so the controller only has to
+handle one shape. "Bearbeiten" only makes sense for a single card, so it's
+left out of the context menu whenever more than one row is selected.
 """
 
 from __future__ import annotations
@@ -27,15 +33,85 @@ from PySide6.QtWidgets import (
 )
 
 from app.catalog.models import CatalogCard
+from app.i18n import tr
 from app.models.card import Card, CardDetailsValues
+from app.models.enums import Condition, Language
+from app.pricing.models import ProductInfo
 from app.services.statistics_service import is_price_stale
+from app.ui.condition_icon_provider import get_condition_icon
 from app.ui.dialogs.card_details_dialog import CardDetailsDialog
+from app.ui.dialogs.manual_price_dialog import ManualPriceDialog
+from app.ui.language_icon_provider import get_language_icon
+from app.ui.set_icon_provider import get_set_icon
 from app.ui.theme import PALETTE
 from app.ui.widgets.card_filter_bar import CardFilterBar
+from app.ui.widgets.centered_icon_delegate import CenteredIconDelegate
 
-_COLUMNS = ["Name", "Set", "Nr.", "Extra", "Sprache", "Zustand", "Menge", "Preis"]
+
+def _columns() -> list[str]:
+    # A function, not a module-level constant: tr() must run once the UI
+    # language has been loaded (see app/i18n.py), not at import time.
+    # Sprache/Zustand/Menge are abbreviated ("Spr."/"Zust."/"Anz.") rather
+    # than spelled out in full: those three columns are deliberately narrow
+    # (see the header's own resize setup below), and the full words got
+    # truncated by the header itself (user-reported).
+    return [
+        "Name",
+        "Set",
+        "Nr.",
+        tr("Extra"),
+        tr("Spr."),
+        tr("Zust."),
+        tr("Anz."),
+        tr("Preis"),
+    ]
+
+
 _ID_ROLE = Qt.ItemDataRole.UserRole
-_PRICE_COLUMN = len(_COLUMNS) - 1
+_QUANTITY_COLUMN = 6
+_PRICE_COLUMN = 7
+_SET_COLUMN = 1
+_LANGUAGE_COLUMN = 4
+_CONDITION_COLUMN = 5
+#: Every column can be sorted by clicking its header (user request).
+_SORTABLE_COLUMNS = {0, 1, 2, 3, _LANGUAGE_COLUMN, _CONDITION_COLUMN, _QUANTITY_COLUMN, _PRICE_COLUMN}
+#: Menge/Preis sort by an actual number (see _NumericItem below), not their
+#: displayed text -- a plain alphabetical sort would otherwise rank "10"
+#: before "2", and "1550.00 EUR" before "20.00 EUR".
+_NUMERIC_COLUMNS = {_QUANTITY_COLUMN, _PRICE_COLUMN}
+#: Fully transparent -- used to hide the Sprache column's text (kept only so
+#: the existing case-insensitive alphabetical sort still has something to
+#: compare) once its flag icon replaces it visually.
+_TRANSPARENT = QColor(0, 0, 0, 0)
+
+
+class _CaseInsensitiveItem(QTableWidgetItem):
+    """Sorts alphabetically by its own text, ignoring case (e.g. "eevee"
+
+    and "Zebra" sort by letter, not by ASCII case) -- the default
+    QTableWidgetItem comparison is case-sensitive."""
+
+    def __lt__(self, other: object) -> bool:
+        if isinstance(other, QTableWidgetItem):
+            return self.text().casefold() < other.text().casefold()
+        return super().__lt__(other)
+
+
+class _NumericItem(QTableWidgetItem):
+    """Sorts by a separately-stored number, not its displayed text (e.g.
+
+    "1550.00 EUR" or "—" for no price) -- text-based sorting would rank
+    these alphabetically, which is meaningless for a mixed number/
+    placeholder column."""
+
+    def __init__(self, text: str, sort_value: float) -> None:
+        super().__init__(text)
+        self._sort_value = sort_value
+
+    def __lt__(self, other: object) -> bool:
+        if isinstance(other, _NumericItem):
+            return self._sort_value < other._sort_value
+        return super().__lt__(other)
 
 
 def _price_text(card: Card) -> str:
@@ -48,16 +124,22 @@ def _price_text(card: Card) -> str:
     return f"{price}  ⚠️" if is_price_stale(card) else price
 
 
+def _price_sort_value(card: Card) -> float:
+    # Unpriced cards sort as the cheapest, not wherever "—" would fall
+    # alphabetically -- an arbitrary but consistent choice.
+    return card.current_price if card.current_price is not None else -1.0
+
+
 def _extras_text(card: Card) -> str:
     labels = []
     if card.is_reverse_holo:
-        labels.append("Rev. Holo")
+        labels.append(tr("Rev. Holo"))
     if card.is_signed:
-        labels.append("Sign.")
+        labels.append(tr("Sign."))
     if card.is_first_edition:
         labels.append("1st Ed.")
     if card.is_altered:
-        labels.append("Alt.")
+        labels.append(tr("Alt."))
     return ", ".join(labels) if labels else "—"
 
 
@@ -66,18 +148,38 @@ class CardListPanel(QWidget):
 
     #: Emitted whenever the selected card changes; -1 means "none".
     selection_changed = Signal(int)
-    #: Emitted with card_id once the user confirms deletion.
-    delete_requested = Signal(int)
+    #: Emitted with a list of card ids (one or more) once the user confirms
+    #: deletion.
+    delete_requested = Signal(list)
     #: Emitted with (card_id, CardDetailsValues) once the user confirms edits.
     edit_requested = Signal(int, object)
     #: Emitted with (CatalogCard, CardDetailsValues) once the user confirms
     #: adding a catalogue match.
     add_confirmed = Signal(object, object)
+    #: Emitted with (name, set_name, card_number, CardDetailsValues,
+    #: photo_path, set_code) once the user confirms adding a manually-entered
+    #: (Cardmarket-link) card. ``photo_path`` is the temp screenshot capture
+    #: from the lookup (see ``ProductInfo.photo_path``), or ``None``.
+    #: ``set_code`` is the best-effort catalogue set id resolved from
+    #: ``set_name`` (see ``ProductInfo.set_code``), or ``""``.
+    manual_add_confirmed = Signal(str, str, str, object, object, str)
+    #: Emitted with a list of card ids (one or more) when "Verschieben" is
+    #: chosen from the context menu -- the controller owns picking/showing
+    #: the target collection, since this panel doesn't know about other
+    #: collections.
+    move_requested = Signal(list)
+    #: Emitted with (card_id, price) once the user confirms a manual price
+    #: override -- only offered for a single selected row (like
+    #: "Bearbeiten"), since overriding several cards' prices to the same
+    #: value at once wouldn't make sense.
+    price_edit_requested = Signal(int, float)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("Panel")
         self._cards_by_id: dict[int, Card] = {}
+        self._sort_column: int | None = None
+        self._sort_order = Qt.SortOrder.AscendingOrder
         self._build()
 
     def _build(self) -> None:
@@ -85,30 +187,49 @@ class CardListPanel(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
 
-        header = QLabel("Karten")
+        header = QLabel(tr("Karten"))
         header.setObjectName("PanelHeader")
         layout.addWidget(header)
 
         self.filter_bar = CardFilterBar()
         layout.addWidget(self.filter_bar)
 
-        self._table = QTableWidget(0, len(_COLUMNS))
-        self._table.setHorizontalHeaderLabels(_COLUMNS)
+        columns = _columns()
+        self._table = QTableWidget(0, len(columns))
+        self._table.setHorizontalHeaderLabels(columns)
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(False)
 
         header_view = self._table.horizontalHeader()
         header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for col in range(1, len(_COLUMNS)):
+        for col in range(1, len(columns)):
             header_view.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        # Sprache/Zustand show only a small centered icon and Menge only a
+        # 1-2 digit number, but ResizeToContents sizes them by their (longer)
+        # header label instead -- squeezing Name's share of the stretch
+        # column unnecessarily (user request). Narrower fixed start width,
+        # still user-resizable via Interactive rather than locked.
+        for col in (_LANGUAGE_COLUMN, _CONDITION_COLUMN, _QUANTITY_COLUMN):
+            header_view.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
+            header_view.resizeSection(col, 60)
+        header_view.setSectionsClickable(True)
+        header_view.setSortIndicatorShown(True)
+        header_view.sectionClicked.connect(self._on_header_clicked)
 
         self._table.currentCellChanged.connect(self._on_current_cell_changed)
         self._table.itemDoubleClicked.connect(lambda item: self._prompt_edit(item.row()))
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._show_context_menu)
+
+        # Both columns show an icon with no visible text -- center it, since
+        # the default item delegate hugs the icon to the cell's left edge.
+        centered_icon_delegate = CenteredIconDelegate(self._table)
+        self._table.setItemDelegateForColumn(_LANGUAGE_COLUMN, centered_icon_delegate)
+        self._table.setItemDelegateForColumn(_CONDITION_COLUMN, centered_icon_delegate)
+
         layout.addWidget(self._table, stretch=1)
 
     # -- Public API (called by the controller) ----------------------------- #
@@ -132,14 +253,39 @@ class CardListPanel(QWidget):
                 _price_text(card),
             ]
             for col, value in enumerate(values):
-                item = QTableWidgetItem(value)
+                if col == _QUANTITY_COLUMN:
+                    item = _NumericItem(value, sort_value=card.quantity)
+                elif col == _PRICE_COLUMN:
+                    item = _NumericItem(value, sort_value=_price_sort_value(card))
+                elif col in _SORTABLE_COLUMNS:
+                    item = _CaseInsensitiveItem(value)
+                else:
+                    item = QTableWidgetItem(value)
                 if col >= 2:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 if col == 0:
                     item.setData(_ID_ROLE, card.id)
+                if col == _SET_COLUMN:
+                    set_icon = get_set_icon(card.set_code, card.set_name)
+                    if set_icon is not None:
+                        item.setIcon(set_icon)
+                if col == _LANGUAGE_COLUMN:
+                    # Flag icon instead of the "DE"/"EN"/... text (user
+                    # request) -- the text itself stays (invisible) so the
+                    # existing alphabetical sort keeps working unchanged.
+                    item.setIcon(get_language_icon(card.language))
+                    item.setForeground(_TRANSPARENT)
+                if col == _CONDITION_COLUMN:
+                    # Cardmarket-style badge icon instead of colouring the
+                    # whole cell -- text stays (invisible) for sorting, same
+                    # trick as the Sprache column above.
+                    item.setIcon(get_condition_icon(card.condition))
+                    item.setForeground(_TRANSPARENT)
                 if col == _PRICE_COLUMN and card.current_price is not None and is_price_stale(card):
                     item.setForeground(QColor(PALETTE.negative))
                 self._table.setItem(row, col, item)
+        if self._sort_column is not None:
+            self._table.sortItems(self._sort_column, self._sort_order)
         self._table.blockSignals(False)
         self._table.resizeRowsToContents()
 
@@ -150,19 +296,28 @@ class CardListPanel(QWidget):
         item = self._table.item(self._table.currentRow(), 0)
         return item.data(_ID_ROLE) if item is not None else None
 
+    def selected_card_ids(self) -> list[int]:
+        """Every card id currently selected (possibly more than one)."""
+        ids = []
+        for index in sorted(self._table.selectionModel().selectedRows(), key=lambda i: i.row()):
+            item = self._table.item(index.row(), 0)
+            if item is not None:
+                ids.append(item.data(_ID_ROLE))
+        return ids
+
     def select_card(self, card_id: int | None) -> None:
         """Programmatically select a card by id (no-op if not found)."""
         self._restore_selection(card_id)
 
     def show_error(self, message: str) -> None:
         """Display a friendly error message to the user."""
-        QMessageBox.warning(self, "Karten", message)
+        QMessageBox.warning(self, tr("Karten"), message)
 
     def prompt_add_from_catalog(self, catalog_card: CatalogCard) -> None:
         """Open the add-card dialog prefilled from a catalogue match."""
         dialog = CardDetailsDialog(
-            title="Karte hinzufügen",
-            accept_label="Hinzufügen",
+            title=tr("Karte hinzufügen"),
+            accept_label=tr("Hinzufügen"),
             display_name=catalog_card.name,
             display_set=catalog_card.set_name,
             display_number=catalog_card.card_number,
@@ -172,7 +327,61 @@ class CardListPanel(QWidget):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.add_confirmed.emit(catalog_card, dialog.get_values())
 
+    def prompt_add_manual(self, info: ProductInfo, url: str) -> None:
+        """Open the add-card dialog prefilled from a manually-entered Cardmarket link.
+
+        Unlike a catalogue match, name/set/card-number here come from
+        parsing the product page's own title, not a confirmed catalogue
+        record -- editable, so the user can correct them before saving. The
+        link itself is prefilled into "Eigener Cardmarket-Link" so price
+        lookups use exactly the page the user pasted.
+        """
+        dialog = CardDetailsDialog(
+            title=tr("Karte manuell eintragen"),
+            accept_label=tr("Hinzufügen"),
+            display_name=info.name,
+            display_set=info.set_name,
+            display_number=info.card_number,
+            initial=CardDetailsValues(
+                language=Language.ENGLISH,
+                condition=Condition.NEAR_MINT,
+                quantity=1,
+                notes="",
+                manual_cardmarket_url=url,
+            ),
+            editable_identity=True,
+            parent=self,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            name, set_name, card_number = dialog.get_identity()
+            self.manual_add_confirmed.emit(
+                name, set_name, card_number, dialog.get_values(), info.photo_path, info.set_code
+            )
+
     # -- Internals ---------------------------------------------------------- #
+
+    def _on_header_clicked(self, column: int) -> None:
+        """Sort by ``column`` if it's one of the sortable ones (see
+
+        ``_SORTABLE_COLUMNS``); clicking the same column again reverses the
+        order, like a normal spreadsheet. The chosen sort is remembered and
+        reapplied on every subsequent ``set_cards`` call (e.g. after editing
+        a card), so it isn't silently lost on the next refresh."""
+        if column not in _SORTABLE_COLUMNS:
+            return
+        if self._sort_column == column:
+            self._sort_order = (
+                Qt.SortOrder.DescendingOrder
+                if self._sort_order == Qt.SortOrder.AscendingOrder
+                else Qt.SortOrder.AscendingOrder
+            )
+        else:
+            self._sort_column = column
+            self._sort_order = Qt.SortOrder.AscendingOrder
+        previous_id = self.selected_card_id()
+        self._table.sortItems(self._sort_column, self._sort_order)
+        self._table.horizontalHeader().setSortIndicator(self._sort_column, self._sort_order)
+        self._restore_selection(previous_id)
 
     def _restore_selection(self, card_id: int | None) -> None:
         if card_id is None:
@@ -197,8 +406,8 @@ class CardListPanel(QWidget):
         if card is None:
             return
         dialog = CardDetailsDialog(
-            title="Karte bearbeiten",
-            accept_label="Speichern",
+            title=tr("Karte bearbeiten"),
+            accept_label=tr("Speichern"),
             display_name=card.name,
             display_set=card.set_name,
             display_number=card.card_number,
@@ -217,32 +426,69 @@ class CardListPanel(QWidget):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.edit_requested.emit(card_id, dialog.get_values())
 
-    def _prompt_delete(self, row: int) -> None:
+    def _prompt_edit_price(self, row: int) -> None:
         item = self._table.item(row, 0)
         if item is None:
             return
         card_id = item.data(_ID_ROLE)
         card = self._cards_by_id.get(card_id)
-        name = card.name if card is not None else ""
+        if card is None:
+            return
+        dialog = ManualPriceDialog(current_price=card.current_price, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.price_edit_requested.emit(card_id, dialog.get_price())
+
+    def _prompt_delete_selected(self) -> None:
+        ids = self.selected_card_ids()
+        if not ids:
+            return
+        if len(ids) == 1:
+            card = self._cards_by_id.get(ids[0])
+            name = card.name if card is not None else ""
+            message = tr("Soll die Karte „{name}“ wirklich aus der Sammlung gelöscht werden?").format(
+                name=name
+            )
+        else:
+            message = tr(
+                "Sollen die {count} ausgewählten Karten wirklich aus der Sammlung "
+                "gelöscht werden?"
+            ).format(count=len(ids))
         answer = QMessageBox.question(
             self,
-            "Karte löschen",
-            f"Soll die Karte „{name}“ wirklich aus der Sammlung gelöscht werden?",
+            tr("Karte löschen"),
+            message,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if answer == QMessageBox.StandardButton.Yes:
-            self.delete_requested.emit(card_id)
+            self.delete_requested.emit(ids)
 
     def _show_context_menu(self, position) -> None:
         row = self._table.rowAt(position.y())
         if row < 0:
             return
+        item = self._table.item(row, 0)
+        # Right-clicking a row outside the current multi-selection starts a
+        # fresh single-row selection instead of acting on a stale selection
+        # elsewhere -- mirrors standard file-manager behaviour.
+        if item is not None and not item.isSelected():
+            self._table.selectRow(row)
+        ids = self.selected_card_ids()
+        if not ids:
+            return
         menu = QMenu(self)
-        edit_action = menu.addAction("Bearbeiten")
-        delete_action = menu.addAction("Löschen")
+        edit_action = menu.addAction(tr("Bearbeiten")) if len(ids) == 1 else None
+        price_edit_action = (
+            menu.addAction(tr("Preis manuell bearbeiten")) if len(ids) == 1 else None
+        )
+        move_action = menu.addAction(tr("Verschieben"))
+        delete_action = menu.addAction(tr("Löschen"))
         chosen = menu.exec(self._table.viewport().mapToGlobal(position))
-        if chosen is edit_action:
+        if edit_action is not None and chosen is edit_action:
             self._prompt_edit(row)
+        elif price_edit_action is not None and chosen is price_edit_action:
+            self._prompt_edit_price(row)
+        elif chosen is move_action:
+            self.move_requested.emit(ids)
         elif chosen is delete_action:
-            self._prompt_delete(row)
+            self._prompt_delete_selected()

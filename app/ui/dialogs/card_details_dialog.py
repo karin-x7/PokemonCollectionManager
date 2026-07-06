@@ -11,7 +11,7 @@ The four "extras" (Reverse Holo/Signed/1st Edition/Altered) are plain
 checkboxes — each a definite yes/no, exactly like Cardmarket treats them for
 an actual physical card (its own "Egal" is only a *search* option, not
 something a real card can *be*). Cardmarket's per-card filters
-(``extra[isSigned]`` etc.) need a definite Y/N to match exactly.
+(``isSigned`` etc.) need a definite Y/N to match exactly.
 """
 
 from __future__ import annotations
@@ -19,24 +19,26 @@ from __future__ import annotations
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QDialog,
     QDialogButtonBox,
     QFormLayout,
     QLabel,
+    QLineEdit,
     QPlainTextEdit,
     QSpinBox,
     QVBoxLayout,
 )
 
+from app.i18n import tr
 from app.models.card import CardDetailsValues
 from app.models.enums import Condition, Language
+from app.ui.dialogs.dimmed_dialog import DimmedDialog
 
 _DEFAULT_LANGUAGE = Language.ENGLISH
 _DEFAULT_CONDITION = Condition.NEAR_MINT
 _DEFAULT_QUANTITY = 1
 
 
-class CardDetailsDialog(QDialog):
+class CardDetailsDialog(DimmedDialog):
     """Collects language/condition/extras/quantity/notes for a card."""
 
     def __init__(
@@ -49,10 +51,12 @@ class CardDetailsDialog(QDialog):
         display_number: str,
         display_rarity: str = "",
         initial: CardDetailsValues | None = None,
+        editable_identity: bool = False,
         parent=None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(title)
+        self._editable_identity = editable_identity
         self._build(
             accept_label=accept_label,
             display_name=display_name,
@@ -74,27 +78,43 @@ class CardDetailsDialog(QDialog):
     ) -> None:
         layout = QVBoxLayout(self)
         form = QFormLayout()
-        form.addRow("Name:", QLabel(display_name))
-        form.addRow("Set:", QLabel(display_set))
-        form.addRow("Kartennummer:", QLabel(display_number))
+        if self._editable_identity:
+            # "Karte manuell eintragen": unlike a catalogue match, there's no
+            # guaranteed-correct source for name/set/number here (they're
+            # parsed off a Cardmarket page title, which can be blank for a
+            # card number or occasionally not what's expected) -- editable
+            # so the user can confirm or correct them before saving.
+            self._name_edit = QLineEdit(display_name)
+            self._set_edit = QLineEdit(display_set)
+            self._number_edit = QLineEdit(display_number)
+            form.addRow(tr("Name:"), self._name_edit)
+            form.addRow(tr("Set:"), self._set_edit)
+            form.addRow(tr("Kartennummer:"), self._number_edit)
+        else:
+            form.addRow(tr("Name:"), QLabel(display_name))
+            form.addRow(tr("Set:"), QLabel(display_set))
+            form.addRow(tr("Kartennummer:"), QLabel(display_number))
         if display_rarity:
-            form.addRow("Rarität:", QLabel(display_rarity))
+            form.addRow(tr("Rarität:"), QLabel(display_rarity))
 
+        # Language/Condition labels (e.g. "German", "Near Mint") are already
+        # the English technical term Cardmarket itself uses -- no
+        # translation needed here, unlike prose strings.
         self._language_combo = QComboBox()
         for language in Language:
             self._language_combo.addItem(language.label, language)
-        form.addRow("Sprache:", self._language_combo)
+        form.addRow(tr("Sprache:"), self._language_combo)
 
         self._condition_combo = QComboBox()
         for condition in Condition:
             self._condition_combo.addItem(condition.label, condition)
-        form.addRow("Zustand:", self._condition_combo)
+        form.addRow(tr("Zustand:"), self._condition_combo)
 
-        self._reverse_holo_check = QCheckBox("Reverse Holo")
-        self._signed_check = QCheckBox("Signiert")
+        self._reverse_holo_check = QCheckBox(tr("Reverse Holo"))
+        self._signed_check = QCheckBox(tr("Signiert"))
         self._first_edition_check = QCheckBox("1st Edition")
-        self._altered_check = QCheckBox("Altered")
-        form.addRow("Extra:", self._reverse_holo_check)
+        self._altered_check = QCheckBox(tr("Altered"))
+        form.addRow(tr("Extra:"), self._reverse_holo_check)
         form.addRow("", self._signed_check)
         form.addRow("", self._first_edition_check)
         form.addRow("", self._altered_check)
@@ -102,11 +122,28 @@ class CardDetailsDialog(QDialog):
         self._quantity_spin = QSpinBox()
         self._quantity_spin.setMinimum(1)
         self._quantity_spin.setMaximum(999)
-        form.addRow("Menge:", self._quantity_spin)
+        form.addRow(tr("Menge:"), self._quantity_spin)
 
         self._notes_edit = QPlainTextEdit()
         self._notes_edit.setFixedHeight(60)
-        form.addRow("Notizen:", self._notes_edit)
+        form.addRow(tr("Notizen:"), self._notes_edit)
+
+        self._manual_cardmarket_url_edit = QLineEdit()
+        self._manual_cardmarket_url_edit.setPlaceholderText(
+            tr(
+                "Nur nötig bei Japanisch/Koreanisch/Chinesisch: eigener Link zum "
+                "richtigen Cardmarket-Produkt"
+            )
+        )
+        self._manual_cardmarket_url_edit.setToolTip(
+            tr(
+                "Für Japanisch/Koreanisch/Chinesisch führt Cardmarket den Druck als "
+                "eigenständiges Produkt unter einem anderen Set-Namen -- die "
+                "automatische Zuordnung zeigt dort das falsche (westliche) Produkt. "
+                "Hier den korrekten Cardmarket-Link einfügen, um das zu beheben."
+            )
+        )
+        form.addRow(tr("Eigener Cardmarket-Link:"), self._manual_cardmarket_url_edit)
 
         layout.addLayout(form)
 
@@ -124,6 +161,7 @@ class CardDetailsDialog(QDialog):
         self._altered_check.setChecked(values.is_altered)
         self._quantity_spin.setValue(values.quantity)
         self._notes_edit.setPlainText(values.notes)
+        self._manual_cardmarket_url_edit.setText(values.manual_cardmarket_url or "")
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -132,6 +170,18 @@ class CardDetailsDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def get_identity(self) -> tuple[str, str, str]:
+        """The confirmed (name, set, card_number) -- only meaningful when
+
+        constructed with ``editable_identity=True``; call after ``exec()``
+        returns Accepted.
+        """
+        return (
+            self._name_edit.text().strip(),
+            self._set_edit.text().strip(),
+            self._number_edit.text().strip(),
+        )
 
     def get_values(self) -> CardDetailsValues:
         """The form's current values (call after ``exec()`` returns Accepted)."""
@@ -144,4 +194,5 @@ class CardDetailsDialog(QDialog):
             is_altered=self._altered_check.isChecked(),
             quantity=self._quantity_spin.value(),
             notes=self._notes_edit.toPlainText().strip(),
+            manual_cardmarket_url=self._manual_cardmarket_url_edit.text().strip() or None,
         )

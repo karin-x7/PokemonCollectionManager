@@ -91,11 +91,79 @@ def build_stylesheet() -> str:
         border: none;
         background: transparent;
     }}
+    /* Search-results dialogs' "Suche läuft…" loading state. */
+    QLabel#SearchLoadingLabel {{
+        color: {p.accent};
+        font-weight: 600;
+        border: none;
+        background: transparent;
+    }}
+    QProgressBar#SearchLoadingBar {{
+        max-height: 6px;
+        border: none;
+        border-radius: 3px;
+        background-color: {p.panel_raised};
+    }}
+    QProgressBar#SearchLoadingBar::chunk {{
+        border-radius: 3px;
+        background-color: {p.accent};
+    }}
     QLabel#SectionHeader {{
         font-size: 12pt;
         font-weight: 700;
         color: {p.text};
         padding: 10px 0 2px 0;
+        border: none;
+        background: transparent;
+    }}
+    /* Statistics tab: "Karten"/"Sealed-Produkte" top-level dividers -- a
+       bigger, accent-underlined header so the two portfolios read as
+       clearly separate parts of the page, not just another SectionHeader
+       among many. */
+    QLabel#SuperSectionHeader {{
+        font-size: 14pt;
+        font-weight: 700;
+        color: {p.accent_secondary};
+        padding: 4px 0 6px 0;
+        border-bottom: 2px solid {p.border};
+        margin-top: 8px;
+        background: transparent;
+    }}
+    /* Statistics tab: small "Karten"/"Sealed-Produkte" summary tiles at the
+       top -- a raised card, distinct from the page's own background, so
+       the headline numbers stand out before the detail tables below. */
+    QWidget#StatCard {{
+        background-color: {p.panel_raised};
+        border: 1px solid {p.border};
+        border-radius: 10px;
+    }}
+    QLabel#StatCardTitle {{
+        color: {p.muted};
+        font-weight: 600;
+        border: none;
+        background: transparent;
+    }}
+    QLabel#StatCardValue {{
+        color: {p.accent_secondary};
+        font-size: 16pt;
+        font-weight: 700;
+        border: none;
+        background: transparent;
+    }}
+    /* Toolbar: the fixed-width container holding search field/button/
+       "Karte manuell eintragen" (see main_window.py). Plain QWidgets
+       otherwise inherit the app-wide QWidget background-color rule above,
+       which is a *darker* shade than QToolBar's own -- invisible while
+       full of children, but a jarring dark rectangle once they're hidden
+       on non-"Karten" tabs (live-confirmed via screenshot). Transparent
+       lets the toolbar's own background show through instead. */
+    QWidget#ToolbarSearchGroup {{
+        background: transparent;
+        border: none;
+    }}
+    QLabel#StatCardSubtext {{
+        color: {p.muted};
+        font-size: 9pt;
         border: none;
         background: transparent;
     }}
@@ -139,7 +207,30 @@ def build_stylesheet() -> str:
         background-color: {p.selection};
         color: {p.accent_secondary};
     }}
-    QLineEdit, QPlainTextEdit, QSpinBox {{
+    /* Active "Karten"/"Statistik" tab -- a subtle text colour + underline,
+       not a solid fill, so it still reads as a plain tab-style toggle
+       rather than a real action button like "Suchen"/"Karte manuell
+       eintragen" (see ToolbarPrimaryAction below). */
+    QToolBar QToolButton:checked {{
+        background: transparent;
+        color: {p.accent_secondary};
+        font-weight: 700;
+        border-bottom: 2px solid {p.accent};
+    }}
+    QToolBar QToolButton:checked:hover {{
+        background-color: {p.selection};
+    }}
+    /* "Karte manuell eintragen" -- styled as a solid button like "Suchen",
+       not a plain toolbar action (user request). */
+    QToolBar QToolButton#ToolbarPrimaryAction {{
+        background-color: {p.accent};
+        color: #1a1408;
+        font-weight: 700;
+    }}
+    QToolBar QToolButton#ToolbarPrimaryAction:hover {{
+        background-color: {p.accent_hover};
+    }}
+    QLineEdit, QPlainTextEdit, QSpinBox, QTextEdit, QTextBrowser {{
         background-color: {p.panel_raised};
         color: {p.text};
         border: 1px solid {p.border};

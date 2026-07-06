@@ -20,7 +20,12 @@ _CARDMARKET_URL = "https://prices.pokemontcg.io/cardmarket/skg-h32"
 #: Cards built by ``_card()`` below default every extra to False -- every
 #: expected-URL assertion needs the same, since the ladder now filters by
 #: these on every tier.
-_NO_EXTRAS = {"signed": False, "first_edition": False, "altered": False}
+_NO_EXTRAS = {
+    "signed": False,
+    "first_edition": False,
+    "altered": False,
+    "reverse_holo": False,
+}
 
 
 class FakeOfferReader:
@@ -73,7 +78,14 @@ def _card(temp_db: Database, collection_id: int, **overrides) -> Card:
     return CardRepository(temp_db).create(Card(**base))
 
 
-def _service(temp_db: Database, offer_reader, pokemontcg=None, url_resolver=None) -> PriceService:
+def _service(
+    temp_db: Database,
+    offer_reader,
+    pokemontcg=None,
+    url_resolver=None,
+    designation_lookup=None,
+    version_switch_delay: float = 0,
+) -> PriceService:
     return PriceService(
         CardRepository(temp_db),
         PriceRepository(temp_db),
@@ -82,6 +94,11 @@ def _service(temp_db: Database, offer_reader, pokemontcg=None, url_resolver=None
         # Identity by default: these tests care about the matching ladder,
         # not redirect resolution, and must never make a real HTTP request.
         url_resolver=url_resolver or (lambda url: url),
+        # "No suggestion" by default -- must never make a real HTTP request.
+        designation_lookup=designation_lookup or (lambda external_id, language: None),
+        # No real delay by default -- these tests must run fast; the real,
+        # deliberately noticeable pause is exercised/verified separately.
+        version_switch_delay=version_switch_delay,
     )
 
 
@@ -213,6 +230,141 @@ def test_falls_back_to_worse_condition_same_language_when_nothing_at_or_better(
     )
 
 
+# -- alternate-version fallback (vintage multi-product sets) --------------- #
+# Real, confirmed case: Cardmarket lists a vintage set's language as an
+# entirely separate product under a sibling "-V<n>-" URL, not a filter on
+# one shared page (Base Set's Venusaur: "-V2-" English-only vs. "-V1-"
+# multi-language). This ladder step tries exactly one alternate version --
+# never more -- after a deliberate pause, since this exact kind of
+# candidate-guessing previously triggered a real Cardmarket account
+# lockout when it opened up to 6 tabs with no delay (see
+# PROJECT_PROGRESS.md, "Verworfener Versuch").
+_VINTAGE_URL = "https://cardmarket.com/en/Pokemon/Products/Singles/Base-Set/Venusaur-V2-BS15"
+_VINTAGE_ALTERNATE_URL = "https://cardmarket.com/en/Pokemon/Products/Singles/Base-Set/Venusaur-V1-BS15"
+
+
+def test_alternate_version_is_tried_when_language_has_zero_offers_at_all(
+    temp_db: Database, collection_id: int
+) -> None:
+    card = _card(
+        temp_db, collection_id, language=Language.GERMAN, condition=Condition.GOOD,
+        cardmarket_url=_VINTAGE_URL,
+    )
+    # Tier 1 + tier 2 on the (wrong) V2 product: zero German offers at all.
+    # Alternate (V1) tier 1: nothing at-or-better. Alternate tier 2: a match.
+    alt_offers = [
+        CardmarketOffer(seller="a", condition=Condition.GOOD, language=Language.GERMAN, price=250.0)
+    ]
+    reader = FakeOfferReader([], [], [], alt_offers)
+    service = _service(temp_db, reader, version_switch_delay=0)
+
+    updated = service.update_price_for_card(card.id)
+
+    assert updated.current_price == 250.0
+    assert updated.price_quality is PriceQuality.EXACT
+    assert len(reader.calls) == 4
+    assert reader.calls[2][0] == build_filtered_url(
+        _VINTAGE_ALTERNATE_URL, language=Language.GERMAN, min_condition=Condition.GOOD, **_NO_EXTRAS
+    )
+    assert reader.calls[3][0] == build_filtered_url(
+        _VINTAGE_ALTERNATE_URL, language=Language.GERMAN, **_NO_EXTRAS
+    )
+    # The corrected URL is persisted so every future lookup goes straight
+    # to the right product.
+    assert updated.cardmarket_url == _VINTAGE_ALTERNATE_URL
+
+
+def test_alternate_version_not_tried_for_a_modern_card_without_a_version_suffix(
+    temp_db: Database, collection_id: int
+) -> None:
+    """``_CARDMARKET_URL`` (used by the default ``_card()`` fixture) has no
+
+    "-V<n>-" suffix at all -- must never invent one to try."""
+    card = _card(temp_db, collection_id, language=Language.GERMAN, condition=Condition.GOOD)
+    reader = FakeOfferReader([], [], [])  # tier 1, tier 2, tier 3 (any language) all empty
+
+    updated = _service(temp_db, reader).update_price_for_card(card.id)
+
+    assert updated.price_quality is PriceQuality.NO_PRICE
+    assert len(reader.calls) == 4  # tiers 1-4, no extra alternate-version call
+
+
+def test_alternate_version_not_tried_when_step_two_already_found_offers(
+    temp_db: Database, collection_id: int
+) -> None:
+    """Reaching tier 2 with *some* offers (even if none match condition
+
+    exactly) means the language genuinely has stock on this product -- not
+    the "wrong product entirely" signature this fallback looks for."""
+    card = _card(
+        temp_db, collection_id, language=Language.GERMAN, condition=Condition.GOOD,
+        cardmarket_url=_VINTAGE_URL,
+    )
+    tier2_offers = [
+        CardmarketOffer(seller="a", condition=Condition.POOR, language=Language.GERMAN, price=1.0)
+    ]
+    reader = FakeOfferReader([], tier2_offers)
+    service = _service(temp_db, reader)
+
+    updated = service.update_price_for_card(card.id)
+
+    assert updated.current_price == 1.0
+    assert len(reader.calls) == 2  # no alternate-version attempt made
+    assert updated.cardmarket_url == _VINTAGE_URL  # unchanged
+
+
+def test_alternate_version_failing_too_falls_through_to_any_language_step(
+    temp_db: Database, collection_id: int
+) -> None:
+    card = _card(
+        temp_db, collection_id, language=Language.GERMAN, condition=Condition.GOOD,
+        cardmarket_url=_VINTAGE_URL,
+    )
+    tier3_offers = [
+        CardmarketOffer(seller="a", condition=Condition.GOOD, language=Language.ENGLISH, price=99.0)
+    ]
+    # tier1, tier2 (V2, empty), alt tier1, alt tier2 (V1, empty too), tier3 (any language, V2)
+    reader = FakeOfferReader([], [], [], [], tier3_offers)
+    service = _service(temp_db, reader)
+
+    updated = service.update_price_for_card(card.id)
+
+    assert updated.current_price == 99.0
+    assert updated.price_quality is PriceQuality.ESTIMATED_FROM_LANGUAGE
+    assert len(reader.calls) == 5
+    # The original (unconfirmed) URL is used for tier 3 -- the alternate
+    # never panned out, so it must not be adopted.
+    assert reader.calls[4][0] == build_filtered_url(
+        _VINTAGE_URL, min_condition=Condition.GOOD, **_NO_EXTRAS
+    )
+    assert updated.cardmarket_url == _VINTAGE_URL
+
+
+def test_alternate_version_switch_applies_a_deliberate_delay(
+    temp_db: Database, collection_id: int, monkeypatch
+) -> None:
+    """This exact kind of candidate-guessing previously triggered a real
+
+    Cardmarket account lockout (see PROJECT_PROGRESS.md) because it opened
+    several tabs with *no* delay at all -- the fix must always pause first,
+    never fire the alternate tab instantly.
+    """
+    import app.services.price_service as price_service_module
+
+    card = _card(
+        temp_db, collection_id, language=Language.GERMAN, condition=Condition.GOOD,
+        cardmarket_url=_VINTAGE_URL,
+    )
+    reader = FakeOfferReader([], [], [], [])
+    sleep_calls = []
+    monkeypatch.setattr(price_service_module.time, "sleep", sleep_calls.append)
+    service = _service(temp_db, reader, version_switch_delay=3.0)
+
+    service.update_price_for_card(card.id)
+
+    assert sleep_calls == [3.0]
+
+
 def test_estimated_from_language_picks_cheapest_same_condition_other_language(
     temp_db: Database, collection_id: int
 ) -> None:
@@ -268,16 +420,100 @@ def test_average_used_when_nothing_matches_language_or_condition(
     assert reader.calls[3][0] == build_filtered_url(_CARDMARKET_URL, **_NO_EXTRAS)
 
 
-def test_unmapped_language_falls_back_to_client_side_filtering(
+def test_unmapped_language_without_manual_url_bails_with_clear_message(
     temp_db: Database, collection_id: int
 ) -> None:
-    """Japanese/Korean/Chinese have no Cardmarket URL filter id (separate
+    """Japanese/Korean/Chinese prints are entirely separate Cardmarket
 
-    products there, not a language filter) — the base URL is fetched
-    unfiltered instead, and matching by language falls back to filtering the
-    returned offers in Python.
+    products (e.g. Neo Revelation's Ho-Oh is listed under "Awakening
+    Legends"), not a language filter on the Western product's page.
+    pokemontcg.io's own cardmarket_url always points at that Western
+    product, so falling through the ladder against it would misprice the
+    card from unrelated offers -- this must bail out instead of guessing,
+    and never even touch the reader.
     """
     card = _card(temp_db, collection_id, language=Language.JAPANESE, condition=Condition.GOOD)
+    reader = FakeOfferReader()
+    service = _service(temp_db, reader)
+
+    updated = service.update_price_for_card(card.id)
+
+    assert updated.current_price is None
+    assert updated.price_quality is PriceQuality.NO_PRICE
+    assert "Japanese" in updated.price_rationale
+    assert "Cardmarket-Link" in updated.price_rationale
+    assert reader.calls == []
+
+
+def test_unmapped_language_bail_out_includes_a_designation_hint_when_found(
+    temp_db: Database, collection_id: int
+) -> None:
+    """Names/labels only, never a price -- see tcgdex_designation_lookup's
+
+    own docstring for why tcgdex is not trusted for pricing.
+    """
+    from app.catalog.tcgdex_designation_lookup import LocalizedDesignation
+
+    card = _card(
+        temp_db,
+        collection_id,
+        language=Language.JAPANESE,
+        condition=Condition.GOOD,
+        external_card_id="neo3-7",
+    )
+    designation = LocalizedDesignation(
+        card_name="ho-oh", set_name="めざめる伝説", set_id="neo3", local_id="011"
+    )
+    calls = []
+
+    def fake_lookup(external_id, language):
+        calls.append((external_id, language))
+        return designation
+
+    service = _service(temp_db, FakeOfferReader(), designation_lookup=fake_lookup)
+
+    updated = service.update_price_for_card(card.id)
+
+    assert calls == [("neo3-7", Language.JAPANESE)]
+    assert "めざめる伝説" in updated.price_rationale
+    assert "011" in updated.price_rationale
+    assert updated.current_price is None  # a designation hint is never a price
+    assert updated.price_quality is PriceQuality.NO_PRICE
+
+
+def test_unmapped_language_bail_out_survives_a_designation_lookup_failure(
+    temp_db: Database, collection_id: int
+) -> None:
+    from app.catalog.tcgdex_designation_lookup import TcgdexDesignationLookupError
+
+    def raising_lookup(external_id, language):
+        raise TcgdexDesignationLookupError("boom")
+
+    card = _card(temp_db, collection_id, language=Language.JAPANESE, condition=Condition.GOOD)
+    service = _service(temp_db, FakeOfferReader(), designation_lookup=raising_lookup)
+
+    updated = service.update_price_for_card(card.id)
+
+    assert updated.price_quality is PriceQuality.NO_PRICE
+    assert "Japanese" in updated.price_rationale
+
+
+def test_manual_cardmarket_url_override_is_used_for_unmapped_language(
+    temp_db: Database, collection_id: int
+) -> None:
+    """Once the user supplies the correct (Japanese-product) Cardmarket URL
+
+    themselves, the ladder runs against *that* instead, with the same
+    client-side language filtering as any other unmapped-language lookup.
+    """
+    manual_url = "https://www.cardmarket.com/en/Pokemon/Products/Singles/Awakening-Legends/Ho-Oh-AL"
+    card = _card(
+        temp_db,
+        collection_id,
+        language=Language.JAPANESE,
+        condition=Condition.GOOD,
+        manual_cardmarket_url=manual_url,
+    )
     offers = [
         CardmarketOffer(seller="a", condition=Condition.GOOD, language=Language.JAPANESE, price=9.0),
         CardmarketOffer(seller="b", condition=Condition.GOOD, language=Language.ENGLISH, price=1.0),
@@ -290,15 +526,16 @@ def test_unmapped_language_falls_back_to_client_side_filtering(
     assert updated.current_price == 9.0  # the cheap English one must be ignored
     assert updated.price_quality is PriceQuality.EXACT
     # No language id to filter by, but the condition filter still applies.
-    expected_url = build_filtered_url(_CARDMARKET_URL, min_condition=Condition.GOOD, **_NO_EXTRAS)
+    expected_url = build_filtered_url(manual_url, min_condition=Condition.GOOD, **_NO_EXTRAS)
     assert reader.calls == [(expected_url, "Xatu")]
 
 
 def test_extras_are_included_in_every_tier_url(temp_db: Database, collection_id: int) -> None:
-    """A signed/1st-edition/altered card must never be priced against
+    """A signed/1st-edition/altered/reverse-holo card must never be priced
 
-    offers lacking those exact same extras — Cardmarket's own filters
-    (``extra[isSigned]`` etc.) enforce this server-side, so every ladder
+    against offers lacking those exact same extras — Cardmarket's own
+    filters (``isSigned``/``isFirstEd``/``isAltered``/``isReverseHolo``,
+    all bare top-level params) enforce this server-side, so every ladder
     tier's URL must carry them, not just the first one.
     """
     card = _card(
@@ -309,6 +546,7 @@ def test_extras_are_included_in_every_tier_url(temp_db: Database, collection_id:
         is_signed=True,
         is_first_edition=True,
         is_altered=True,
+        is_reverse_holo=True,
     )
     reader = FakeOfferReader([], [], [], [])
     service = _service(temp_db, reader)
@@ -317,9 +555,10 @@ def test_extras_are_included_in_every_tier_url(temp_db: Database, collection_id:
 
     assert len(reader.calls) == 4
     for url, _hint in reader.calls:
-        assert "extra%5BisSigned%5D=Y" in url
-        assert "extra%5BisFirstEd%5D=Y" in url
-        assert "extra%5BisAltered%5D=Y" in url
+        assert "isSigned=Y" in url
+        assert "isFirstEd=Y" in url
+        assert "isAltered=Y" in url
+        assert "isReverseHolo=Y" in url
 
 
 def test_no_offers_found_yields_no_price(temp_db: Database, collection_id: int) -> None:
@@ -390,6 +629,87 @@ def test_no_cardmarket_url_and_no_external_id_yields_no_price_without_calling_re
 
     assert updated.price_quality is PriceQuality.NO_PRICE
     assert offer_reader.calls == []
+
+
+def test_base_set_card_without_a_link_gets_a_specific_ambiguous_variant_message(
+    temp_db: Database, collection_id: int
+) -> None:
+    # Real, live-reported case: Base Set splits into Normal/Shadowless
+    # Cardmarket products pokemontcg.io can't tell apart -- a card with no
+    # link at all in an ambiguous set should get a specific, actionable
+    # message, not the generic "no cardmarket link known" one, and never
+    # fall through to backfilling (which would just be pokemontcg.io's
+    # single, arbitrary link again).
+    card = _card(
+        temp_db,
+        collection_id,
+        cardmarket_url=None,
+        external_card_id=None,
+        set_code="base1",
+        set_name="Base",
+    )
+    offer_reader = FakeOfferReader()
+    service = _service(temp_db, offer_reader)
+
+    updated = service.update_price_for_card(card.id)
+
+    assert updated.price_quality is PriceQuality.NO_PRICE
+    assert offer_reader.calls == []
+    assert "Eigener Cardmarket-Link" in updated.price_rationale
+    assert "Shadowless" in updated.price_rationale
+
+
+def test_base_set_card_with_an_unresolved_shortlink_is_still_treated_as_ambiguous(
+    temp_db: Database, collection_id: int
+) -> None:
+    # A card added before the variant-splitting existed (or otherwise never
+    # routed through CatalogSearchService's splitting) can already have
+    # pokemontcg.io's own unresolved, variant-ambiguous shortlink stored --
+    # that must not be blindly trusted just because *a* URL is present.
+    card = _card(
+        temp_db,
+        collection_id,
+        cardmarket_url="https://prices.pokemontcg.io/cardmarket/base1-4",
+        external_card_id=None,
+        set_code="base1",
+        set_name="Base",
+    )
+    offer_reader = FakeOfferReader()
+    service = _service(temp_db, offer_reader)
+
+    updated = service.update_price_for_card(card.id)
+
+    assert updated.price_quality is PriceQuality.NO_PRICE
+    assert offer_reader.calls == []
+    assert "Eigener Cardmarket-Link" in updated.price_rationale
+
+
+def test_base_set_card_with_an_already_resolved_link_is_used_directly(
+    temp_db: Database, collection_id: int
+) -> None:
+    # A card added via CatalogSearchService's variant-splitting (or with a
+    # manually-set link) already has a specific, resolved cardmarket.com URL
+    # -- not pokemontcg.io's own shortlink -- and should be used as normal.
+    resolved_url = "https://www.cardmarket.com/en/Pokemon/Products/Singles/Base-Set/Charizard-V1-BS4"
+    card = _card(
+        temp_db,
+        collection_id,
+        cardmarket_url=resolved_url,
+        external_card_id=None,
+        set_code="base1",
+        set_name="Base",
+        language=Language.ENGLISH,
+    )
+    offer_reader = FakeOfferReader(
+        [CardmarketOffer(seller="a", condition=card.condition, language=card.language, price=200.0)]
+    )
+    service = _service(temp_db, offer_reader)
+
+    updated = service.update_price_for_card(card.id)
+
+    assert updated.price_quality is PriceQuality.EXACT
+    assert offer_reader.calls
+    assert offer_reader.calls[0][0].startswith(resolved_url)
 
 
 def test_price_history_record_is_written_on_success(

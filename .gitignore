@@ -10,16 +10,11 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# Application data (local, machine-specific)
-data/*.db
-data/*.db-journal
-data/*.db-wal
-data/*.db-shm
+# Application data (local, machine-specific: DB, photos, backups, cached
+# set icons — all regenerated/re-downloaded on demand, never real source)
+data/
 logs/*.log
 logs/*.log.*
-
-# User photos
-data/photos/
 
 # IDE
 .idea/
@@ -35,3 +30,8 @@ desktop.ini
 config/secrets.json
 config/*.local.json
 .env
+
+# PyInstaller build output (rebuild from PokemonCollectionManager.spec)
+build/
+dist/
+*.spec.bak

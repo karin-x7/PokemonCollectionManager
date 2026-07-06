@@ -1,23 +1,31 @@
 """Connects the toolbar search field to :class:`CatalogSearchService`.
 
 The toolbar's search field is the only input; results are shown in a modal
-dialog. When the user picks a match there and confirms "Hinzufügen", this
-controller re-emits it as ``card_add_requested`` — it does not persist
-anything itself, that's :class:`~app.ui.controllers.card_controller.
-CardController`'s job (wired together in :class:`~app.ui.main_window.
-MainWindow`).
+dialog, which opens immediately in a "Suche läuft…" loading state rather
+than only after the (network-bound, sometimes multi-second) search
+completes -- searching used to run synchronously with just a wait cursor,
+which for however long pokemontcg.io took made the whole app look frozen/
+crashed instead of "still working on it" (live-reported point of
+confusion). The search itself now runs on a background
+:class:`~app.ui.workers.catalog_search_worker.CatalogSearchWorker`, mirroring
+the Cardmarket-search flow's own dialog-opens-immediately pattern. When the
+user picks a match there and confirms "Hinzufügen", this controller
+re-emits it as ``card_add_requested`` — it does not persist anything
+itself, that's :class:`~app.ui.controllers.card_controller.CardController`'s
+job (wired together in :class:`~app.ui.main_window.MainWindow`).
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
+from PySide6.QtCore import QObject, Signal
+from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from app.catalog.models import CatalogCard
+from app.i18n import tr
 from app.logging_config import get_logger
 from app.services.catalog_search_service import CatalogSearchService
-from app.services.exceptions import CatalogSearchError
 from app.ui.dialogs.catalog_search_results_dialog import CatalogSearchResultsDialog
+from app.ui.workers.catalog_search_worker import CatalogSearchWorker
 
 logger = get_logger(__name__)
 
@@ -37,47 +45,59 @@ class CatalogSearchController(QObject):
         super().__init__(parent or main_window)
         self._main_window = main_window
         self._service = service
+        self._worker: CatalogSearchWorker | None = None
+        self._results_dialog: CatalogSearchResultsDialog | None = None
+        self._query: str = ""
 
     def handle_search(self, query: str) -> None:
         """Run a catalogue search for ``query`` and show the results."""
         cleaned = (query or "").strip()
         if not cleaned:
-            self._main_window.statusBar().showMessage("Bitte Suchbegriff eingeben.", 5000)
+            self._main_window.statusBar().showMessage(tr("Bitte Suchbegriff eingeben."), 5000)
+            return
+        if self._worker is not None:
+            logger.info("Catalogue search already running -- ignoring request.")
             return
 
-        # The actual search below is a synchronous, blocking network call --
-        # without this, the window just seemed to "do nothing" for however
-        # long pokemontcg.io took to answer. showMessage() alone wouldn't
-        # actually repaint before the block starts, so force one via
-        # processEvents() right after.
-        self._main_window.statusBar().showMessage(f"Suche läuft für „{cleaned}“ …")
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        QApplication.processEvents()
-        try:
-            try:
-                matches = self._service.search(cleaned)
-            except CatalogSearchError as exc:
-                logger.error("Catalogue search failed for %r: %s", cleaned, exc)
-                self._show_error(str(exc))
-                return
-        finally:
-            QApplication.restoreOverrideCursor()
+        self._query = cleaned
+        self._main_window.statusBar().showMessage(
+            tr("Suche läuft für „{query}“ …").format(query=cleaned)
+        )
+        self._results_dialog = CatalogSearchResultsDialog(self._main_window)
+        self._results_dialog.add_requested.connect(self.card_add_requested)
+        self._worker = CatalogSearchWorker(self._service, cleaned, parent=self)
+        self._worker.succeeded.connect(self._on_succeeded)
+        self._worker.failed.connect(self._on_failed)
+        self._worker.finished.connect(self._cleanup_worker)
+        self._worker.start()
+        # ``_results_dialog`` must stay alive until this call returns -- a
+        # test's synchronous worker stand-in can run the whole succeeded/
+        # failed/finished chain before this line is even reached, so it must
+        # not be cleared by _cleanup_worker() (tied to the worker finishing,
+        # which can happen well before the dialog itself closes).
+        self._results_dialog.exec()
+        self._results_dialog = None
 
+    def _on_succeeded(self, matches: list[CatalogCard]) -> None:
         message = (
-            f"{len(matches)} Treffer für „{cleaned}“."
+            tr("{count} Treffer für „{query}“.").format(count=len(matches), query=self._query)
             if matches
-            else f"Keine Treffer für „{cleaned}“."
+            else tr("Keine Treffer für „{query}“.").format(query=self._query)
         )
         self._main_window.statusBar().showMessage(message, 5000)
-        self._show_results(matches)
+        if self._results_dialog is not None:
+            self._results_dialog.set_results(matches)
+
+    def _on_failed(self, message: str) -> None:
+        logger.error("Catalogue search failed for %r: %s", self._query, message)
+        if self._results_dialog is not None:
+            self._results_dialog.reject()
+        self._show_error(message)
+
+    def _cleanup_worker(self) -> None:
+        self._worker = None
 
     # -- Overridable for headless testing (mirrors CollectionPanel.show_error) #
 
     def _show_error(self, message: str) -> None:
-        QMessageBox.warning(self._main_window, "Kartensuche", message)
-
-    def _show_results(self, matches: list[CatalogCard]) -> None:
-        dialog = CatalogSearchResultsDialog(self._main_window)
-        dialog.set_results(matches)
-        dialog.add_requested.connect(self.card_add_requested)
-        dialog.exec()
+        QMessageBox.warning(self._main_window, tr("Kartensuche"), message)

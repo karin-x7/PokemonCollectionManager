@@ -15,6 +15,9 @@ switch.
 ``start_lookup`` is public (not just the card detail panel's own signal
 handler) because :class:`~app.ui.widgets.statistics_panel.StatisticsPanel`'s
 inline "Preis aktualisieren" buttons trigger the exact same lookup.
+``start_bulk_update`` looks up a whole list of ids one at a time, reusing
+the same single-worker-slot machinery, for that panel's "Alle
+aktualisieren" button.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ from __future__ import annotations
 from PySide6.QtCore import QObject
 from PySide6.QtWidgets import QMainWindow
 
+from app.i18n import tr
 from app.logging_config import get_logger
 from app.models.card import Card
 from app.ui.controllers.card_controller import CardController
@@ -51,6 +55,8 @@ class PriceController(QObject):
         self._card_controller = card_controller
         self._statistics_controller = statistics_controller
         self._worker: PriceLookupWorker | None = None
+        self._bulk_queue: list[int] = []
+        self._bulk_total = 0
 
         panel.price_lookup_requested.connect(self.start_lookup)
 
@@ -59,9 +65,47 @@ class PriceController(QObject):
         if self._worker is not None:
             logger.info("Price lookup already running -- ignoring click.")
             return  # a lookup is already running
+        self._start(card_id, tr("Preis wird von Cardmarket abgerufen…"))
+
+    def start_bulk_update(self, card_ids: list[int]) -> None:
+        """Looks up every id in ``card_ids`` one after another.
+
+        Refuses if a lookup (single or bulk) is already running -- mirrors
+        ``start_lookup``'s own single-worker-slot guard, just checked once
+        up front instead of before every item.
+        """
+        logger.info("Bulk price update requested for %d card(s)", len(card_ids))
+        if self._worker is not None or not card_ids:
+            logger.info("A lookup is already running -- ignoring bulk request.")
+            return
+        self._bulk_queue = list(card_ids)
+        self._bulk_total = len(self._bulk_queue)
+        if self._statistics_controller is not None:
+            self._statistics_controller.set_bulk_card_update_running(True)
+        self._run_next_in_queue()
+
+    def _run_next_in_queue(self) -> None:
+        if not self._bulk_queue:
+            self._bulk_total = 0
+            if self._statistics_controller is not None:
+                self._statistics_controller.set_bulk_card_update_running(False)
+            self._main_window.statusBar().showMessage(
+                tr("Alle veralteten Preise wurden aktualisiert."), 5000
+            )
+            return
+        card_id = self._bulk_queue.pop(0)
+        position = self._bulk_total - len(self._bulk_queue)
+        self._start(
+            card_id,
+            tr("Preis {position}/{total} wird von Cardmarket abgerufen…").format(
+                position=position, total=self._bulk_total
+            ),
+        )
+
+    def _start(self, card_id: int, status_message: str) -> None:
         try:
             self._panel.set_price_lookup_running(True)
-            self._main_window.statusBar().showMessage("Preis wird von Cardmarket abgerufen…")
+            self._main_window.statusBar().showMessage(status_message)
             self._worker = PriceLookupWorker(self._open_service, card_id, parent=self)
             self._worker.succeeded.connect(self._on_succeeded)
             self._worker.failed.connect(self._on_failed)
@@ -71,22 +115,32 @@ class PriceController(QObject):
             logger.exception("Failed to start price lookup for card id=%s", card_id)
             self._panel.set_price_lookup_running(False)
             self._worker = None
+            self._bulk_queue = []
+            self._bulk_total = 0
+            if self._statistics_controller is not None:
+                self._statistics_controller.set_bulk_card_update_running(False)
             raise
 
     def _on_succeeded(self, card: Card) -> None:
         message = (
-            f"Preis für „{card.name}“ aktualisiert: {card.current_price:.2f} {card.price_currency}"
+            tr("Preis für „{name}“ aktualisiert: {price} {currency}").format(
+                name=card.name, price=f"{card.current_price:.2f}", currency=card.price_currency
+            )
             if card.current_price is not None
-            else f"Kein Preis für „{card.name}“ gefunden."
+            else tr("Kein Preis für „{name}“ gefunden.").format(name=card.name)
         )
-        self._main_window.statusBar().showMessage(message, 5000)
+        if not self._bulk_total:
+            self._main_window.statusBar().showMessage(message, 5000)
         self._card_controller.refresh()
         if self._statistics_controller is not None:
             self._statistics_controller.refresh()
 
     def _on_failed(self, message: str) -> None:
-        self._main_window.statusBar().showMessage(message, 5000)
+        if not self._bulk_total:
+            self._main_window.statusBar().showMessage(message, 5000)
 
     def _cleanup(self) -> None:
         self._panel.set_price_lookup_running(False)
         self._worker = None
+        if self._bulk_total:
+            self._run_next_in_queue()

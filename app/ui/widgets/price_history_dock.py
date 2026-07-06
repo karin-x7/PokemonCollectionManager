@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.i18n import tr
 from app.models.card import Card
 from app.models.price import PriceRecord
 from app.ui.theme import PALETTE
@@ -39,7 +40,7 @@ class PriceHistoryDock(QDockWidget):
     history_reset_requested = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__("Preisverlauf", parent)
+        super().__init__(tr("Preisverlauf"), parent)
         self.setAllowedAreas(
             Qt.DockWidgetArea.RightDockWidgetArea | Qt.DockWidgetArea.LeftDockWidgetArea
         )
@@ -62,7 +63,7 @@ class PriceHistoryDock(QDockWidget):
         self._card_name_label.setObjectName("PanelHeader")
         layout.addWidget(self._card_name_label)
 
-        self._placeholder = QLabel("Noch kein Preisverlauf vorhanden.")
+        self._placeholder = QLabel(tr("Noch kein Preisverlauf vorhanden."))
         self._placeholder.setObjectName("EmptyState")
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setWordWrap(True)
@@ -82,7 +83,7 @@ class PriceHistoryDock(QDockWidget):
         self._percent_label.hide()
         layout.addWidget(self._percent_label)
 
-        history_header = QLabel("Letzte Aktualisierungen:")
+        history_header = QLabel(tr("Letzte Aktualisierungen:"))
         history_header.setObjectName("FieldLabel")
         layout.addWidget(history_header)
 
@@ -92,7 +93,7 @@ class PriceHistoryDock(QDockWidget):
         self._history_list.setMinimumHeight(260)
         layout.addWidget(self._history_list, stretch=1)
 
-        self._reset_button = QPushButton("Historie zurücksetzen")
+        self._reset_button = QPushButton(tr("Historie zurücksetzen"))
         self._reset_button.setObjectName("Danger")
         self._reset_button.setEnabled(False)
         self._reset_button.clicked.connect(self._on_reset_clicked)
@@ -112,9 +113,11 @@ class PriceHistoryDock(QDockWidget):
             self._chart_view.hide()
             self._percent_label.hide()
             self._placeholder.setText(
-                f"Nur ein Preis bisher: {records[0].price:.2f} {records[0].currency}"
+                tr("Nur ein Preis bisher: {price} {currency}").format(
+                    price=f"{records[0].price:.2f}", currency=records[0].currency
+                )
                 if records
-                else "Noch kein Preisverlauf vorhanden."
+                else tr("Noch kein Preisverlauf vorhanden.")
             )
             self._placeholder.show()
         else:
@@ -132,7 +135,7 @@ class PriceHistoryDock(QDockWidget):
         self._clear_chart()
         self._chart_view.hide()
         self._percent_label.hide()
-        self._placeholder.setText("Noch kein Preisverlauf vorhanden.")
+        self._placeholder.setText(tr("Noch kein Preisverlauf vorhanden."))
         self._placeholder.show()
         self._history_list.clear()
 
@@ -159,7 +162,7 @@ class PriceHistoryDock(QDockWidget):
         # "dd.MM.yy" per point quickly overlapped into unreadable "03...03..."
         # smears once there were more than a handful of records.
         axis_x.setFormat("dd.MM.")
-        axis_x.setTitleText("Datum")
+        axis_x.setTitleText(tr("Datum"))
         axis_x.setLabelsFont(label_font)
         axis_x.setLabelsAngle(-45)
         axis_x.setLabelsColor(QColor(PALETTE.muted))
@@ -172,7 +175,7 @@ class PriceHistoryDock(QDockWidget):
         # No literal "€" in the tick format -- it rendered as "?" (missing
         # glyph) in the chart font; the unit is already in the axis title.
         axis_y.setLabelFormat("%.2f")
-        axis_y.setTitleText("Preis (€)")
+        axis_y.setTitleText(tr("Preis (€)"))
         axis_y.setLabelsFont(label_font)
         axis_y.setLabelsColor(QColor(PALETTE.muted))
         axis_y.setGridLineColor(QColor(PALETTE.border))
@@ -188,7 +191,11 @@ class PriceHistoryDock(QDockWidget):
             return
         change = (latest - previous) / previous * 100
         sign = "+" if change >= 0 else "−"
-        self._percent_label.setText(f"{sign}{abs(change):.1f} % ggü. letzter Aktualisierung")
+        self._percent_label.setText(
+            tr("{sign}{value} % ggü. letzter Aktualisierung").format(
+                sign=sign, value=f"{abs(change):.1f}"
+            )
+        )
         self._percent_label.setObjectName("PercentPositive" if change >= 0 else "PercentNegative")
         # Force the style engine to re-evaluate the QSS selector for the new
         # objectName -- a plain setObjectName() alone doesn't repaint it.
@@ -200,12 +207,14 @@ class PriceHistoryDock(QDockWidget):
         self._history_list.clear()
         for record in reversed(records[-_MAX_HISTORY_ROWS:]):
             timestamp = QDateTime.fromString(record.recorded_at, Qt.DateFormat.ISODate)
-            when = timestamp.toString("dd.MM.yy HH:mm")
+            # Extra spacing between date and time -- a single plain space
+            # made them look too tight together (user feedback).
+            when = timestamp.toString("dd.MM.yy   HH:mm")
             price_text = f"{record.price:.2f} {record.currency}"
             # Two lines instead of one long "·"-joined line: the single-line
             # form regularly overflowed the dock's width, forcing a
             # horizontal scrollbar just to read one entry.
-            item = QListWidgetItem(f"{when}  ·  {price_text}\n{record.price_quality.label}")
+            item = QListWidgetItem(f"{when}  ·  {price_text}\n{tr(record.price_quality.label)}")
             self._history_list.addItem(item)
 
     def _on_reset_clicked(self) -> None:
@@ -213,9 +222,11 @@ class PriceHistoryDock(QDockWidget):
             return
         confirmed = QMessageBox.question(
             self,
-            "Historie zurücksetzen",
-            "Wirklich den gesamten Preisverlauf dieser Karte löschen? "
-            "Das kann nicht rückgängig gemacht werden.",
+            tr("Historie zurücksetzen"),
+            tr(
+                "Wirklich den gesamten Preisverlauf dieser Karte löschen? "
+                "Das kann nicht rückgängig gemacht werden."
+            ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )

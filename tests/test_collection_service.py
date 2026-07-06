@@ -85,3 +85,5 @@ def test_reorder_collections(service: CollectionService) -> None:
     b = service.create_collection("B")
     service.reorder_collections([b.id, a.id])
     assert [c.name for c in service.list_collections()] == ["B", "A"]
+
+

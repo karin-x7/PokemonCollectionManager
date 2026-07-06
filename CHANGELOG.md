@@ -6,6 +6,778 @@ Versionierung nach [SemVer](https://semver.org).
 
 ## [Unreleased]
 
+## [0.9.0-alpha.1] — 2026-07-06
+
+Erster Alpha-Release: der komplette Funktionsumfang aus den Schritten 2-11
+plus alle seither gesammelten Bugfixes/Feinschliffe, davor nur einzeln als
+Fortschrittsnotizen in `PROJECT_PROGRESS.md` festgehalten.
+
+### Neu — Eigenständige .exe (PyInstaller)
+- Neues `PokemonCollectionManager.spec` (onefile, ohne Konsolenfenster,
+  bündelt Icon/Set-Icon-Cache-Assets/Namensübersetzungstabelle) — Anleitung
+  in der README unter "Eigenständige .exe bauen".
+- `app/config.py`s `BASE_DIR` erkennt jetzt den PyInstaller-gefrorenen
+  Zustand (`sys.frozen`) und zeigt dann auf das Verzeichnis der `.exe`
+  selbst statt auf das temporäre Extraktionsverzeichnis
+  (`sys._MEIPASS`) — sonst wären Datenbank/Fotos/Logs bei jedem Neustart
+  verloren gegangen. Live getestet: `.exe` in ein leeres Verzeichnis
+  kopiert und gestartet — Datenbank, Backup und Log landen korrekt daneben.
+- `.gitignore` überarbeitet: `data/` jetzt komplett ausgeschlossen (vorher
+  fehlten `backups/`, `sealed_photos/`, `set_icons/` in der engeren, alten
+  Regel), `build/`/`dist/` für PyInstaller-Ausgaben ergänzt.
+
+### Neu — Erste Sammlung wird beim Start automatisch ausgewählt
+- Bisher zeigte die App beim Start eine leere Kartenliste, bis man von Hand
+  eine Sammlung anklickte.
+- Die in der Sammlungsliste zuoberst stehende Sammlung wird jetzt beim
+  App-Start automatisch ausgewählt (kein Effekt, wenn noch keine Sammlung
+  existiert).
+- Kurzzeitig war stattdessen eine automatisch angelegte, nicht löschbare
+  Sammlung "All Cards" geplant und auch schon eingebaut — auf Nutzerwunsch
+  wieder vollständig entfernt (inkl. Migration/Datenbankspalte), da eine
+  simple "erste Sammlung auswählen"-Lösung bevorzugt wurde.
+
+### Neu — Katalogsuche findet Trainer-/Item-Karten auch unter ihrem fremdsprachigen Namen
+- Die bestehende Namensübersetzung kannte nur Pokémon-Spezies (aus PokeAPI
+  generiert) — eine Suche nach "Lillys Entschlossenheit" (deutsch für
+  "Lillie's Determination") fand nichts, da Trainer-/Item-/Stadium-Karten
+  bei PokeAPI gar nicht vorkommen.
+- Neue Suchstufe direkt nach der Spezies-Übersetzung (vor dem schrumpfenden
+  Präfix, der bei einem fremdsprachigen Namen ohnehin nie etwas fände):
+  live bei tcgdex.dev in Deutsch/Französisch/Spanisch/Italienisch/
+  Portugiesisch nachschauen und den englischen Namen derselben Karte
+  auflösen — live bestätigt für "Lillys Entschlossenheit" ->
+  "Lillie's Determination". Die fünf Sprachabfragen laufen parallel statt
+  nacheinander.
+- Nachbesserung (Nutzerfeedback: Suche dauerte "sehr lange"): Ursache war,
+  dass die neue Stufe ursprünglich ganz am Ende stand — bei einer
+  fremdsprachigen Trainer-Karte lief davor immer erst der komplette (dabei
+  nutzlose) schrumpfende-Präfix-Durchlauf gegen die englische
+  pokemontcg.io-API, was bei einer gerade langsamen pokemontcg.io-Anbindung
+  mehrere überflüssige 20s-Wartezeiten verursachte. Live nachgemessen:
+  dieselbe Suche ("Cynthias Ehrgeiz" -> "Cynthia's Ambition") lief danach
+  in ca. 5s statt über eine Minute.
+
+### Verworfener Versuch — Shadowless-Bild per Cardmarket-Screenshot
+- Die Base-Set-Normal/Shadowless-Aufteilung in der Katalogsuche (siehe unten)
+  zeigt für die Shadowless-Variante weiterhin das normale pokemontcg.io-Bild
+  (pokemontcg.io führt pro Karte nur ein einziges Foto, das der
+  Normal-Version) — das ist rein optisch, der gespeicherte Cardmarket-Link
+  ist bereits korrekt der Shadowless-Version zugeordnet.
+- Ein automatischer Screenshot-Capture von der Cardmarket-Produktseite
+  wurde gebaut und wieder verworfen: die automatische Fenster-/
+  Bild-Erkennung erwies sich in der Praxis als nicht robust genug
+  (Nutzerfeedback). Da der Link auf die richtige Version zeigt und damit
+  Preisermittlung/Zuordnung korrekt bleiben, wurde das als "gut genug"
+  akzeptiert statt die unzuverlässige Automatik zu behalten.
+
+### Neu — Neues App-Icon (Kartenfächer freigestellt)
+- Das App-Icon zeigte den Kartenfächer bisher innerhalb eines umschließenden
+  Kastens; jetzt freigestellt (echte Transparenz), sodass nur der
+  Kartenfächer selbst als Icon erscheint — in Taskleiste, Titelleiste und
+  Fenster-Icon.
+
+### Fix — Taskleisten-Icon zeigte Python-Symbol statt eigenem App-Icon
+- Windows gruppierte die App unter `pythonw.exe`s eigenem Symbol statt dem
+  eigens gesetzten `icon.ico`.
+- Setzt jetzt vor der `QApplication`-Erstellung eine eigene
+  `AppUserModelID` (Windows-only, best-effort).
+
+### Neu — Kontextmenü: Preis manuell bearbeiten
+- Cardmarket-Verkäufer beschriften Angebote gelegentlich falsch (z. B. eine
+  PSA-1-Karte als "Near Mint" gelistet) — das verfälscht die automatische
+  Preisermittlung, ohne dass es aus der App heraus korrigierbar war.
+- Neue Option im Rechtsklick-Kontextmenü einer einzelnen Karte: "Preis
+  manuell bearbeiten" — setzt den Preis auf einen fest eingetragenen Wert
+  (neue `PriceQuality.MANUAL`), unabhängig von der nächsten automatischen
+  Preisermittlung.
+
+### Neu — Hintergrundfenster wird bei Popups abgedunkelt
+- Ein offener Dialog sah optisch identisch zum Hauptfenster im Ruhezustand
+  aus — bei einer länger laufenden Suche wirkte die App dadurch wie
+  eingefroren/abgestürzt statt "arbeitet noch".
+- Neue gemeinsame Basisklasse `DimmedDialog` (`app/ui/dialogs/dimmed_dialog.py`):
+  überlagert das Hauptfenster mit einem halbtransparenten Overlay, solange
+  der Dialog offen ist. Alle eigenen Dialogklassen der App nutzen sie jetzt
+  statt direkt `QDialog`.
+
+### Neu — Sofortiger Ladeindikator bei Kartensuche/Cardmarket-Suche
+- Beide Such-Ergebnis-Dialoge (Katalogsuche über die Toolbar, "Cardmarket-
+  Link suchen") öffnen sich jetzt sofort mit "Suche läuft…" + Ladebalken,
+  statt erst nach Abschluss der (teils mehrere Sekunden dauernden) Suche zu
+  erscheinen — bis dahin sah die App aus, als würde sie nichts tun.
+- Die Katalogsuche lief bisher synchron im GUI-Thread (nur ein Wartecursor
+  als Rückmeldung) und lief deswegen komplett blockierend; sie läuft jetzt
+  wie die Cardmarket-Suche in einem Hintergrund-Worker
+  (`CatalogSearchWorker`).
+
+### Fix — Base Set: Normal/Shadowless-Mehrdeutigkeit
+- Live-reportiert: eine manuell über die Katalogsuche hinzugefügte Base-Set-
+  Karte (z. B. Charizard) bekam automatisch den Cardmarket-Link der
+  Shadowless-Variante zugeordnet, obwohl der Nutzer die normale (Unlimited)
+  Version besaß bzw. eine nicht-englische Karte gar keine Shadowless-Variante
+  hat (Shadowless existiert ausschließlich auf Englisch).
+- Ursache: pokemontcg.io führt pro Base-Set-Karte nur einen einzigen
+  Cardmarket-Link, der immer auf die Shadowless-Variante zeigt.
+- Die Katalogsuche zeigt für Base-Set-Treffer jetzt zwei Einträge an ("Base"
+  und "Base (Shadowless)"), jeweils mit dem korrekt aufgelösten Cardmarket-
+  Link (Normal bzw. Shadowless) — der Nutzer wählt beim Hinzufügen die
+  richtige Version direkt aus, statt hinterher von Hand nachbessern zu
+  müssen. Für bereits bestehende Karten (oder falls die Auflösung mal
+  fehlschlägt) zeigt die Preisermittlung weiterhin eine spezifische
+  Meldung, die auf "Eigener Cardmarket-Link" verweist, statt automatisch
+  die falsche Variante zu verwenden.
+
+### Geändert — Schwelle für "veraltete Preise" auf 2 Monate
+- `STALE_PRICE_THRESHOLD_DAYS` von 90 auf 60 Tage gesenkt (Nutzerwunsch).
+
+### Neu — Mehrfachauswahl in Karten- und Sealed-Tabelle
+- Bisher konnte immer nur eine Zeile ausgewählt werden — Verschieben/Löschen
+  mehrerer Karten oder Sealed-Produkte am Stück war nicht möglich.
+- Beide Tabellen erlauben jetzt Shift-/Strg-Klick wie in einem normalen
+  Dateimanager. "Verschieben" und "Löschen" wirken auf die gesamte
+  Markierung; "Bearbeiten" (und bei Sealed-Produkten: "Preis
+  aktualisieren") bleiben auf genau eine Zeile beschränkt und verschwinden
+  aus dem Kontextmenü, sobald mehrere Zeilen markiert sind.
+
+### Geändert — UI nur noch auf Englisch
+- Der DE/EN-Sprachumschalter in "Infos und Einstellungen" wurde entfernt —
+  die Programmoberfläche ist jetzt ausschließlich Englisch.
+- Betrifft ausschließlich die UI-Sprache. Die Sprache einzelner Karten/
+  Sealed-Produkte (Englisch, Deutsch, Japanisch, Koreanisch, ...) bleibt
+  unverändert vollständig unterstützt — das ist Karteninhalt, kein
+  UI-Zustand.
+- Der dadurch frei gewordene zweite Tab in "Infos und Einstellungen" zeigt
+  jetzt eine kurze Hilfe/Anleitung: manuelles Eintragen per
+  Cardmarket-Link, warum Japanisch/Koreanisch/Traditionelles-Chinesisch
+  keinen automatischen Sprachfilter bekommen (im Gegensatz zu
+  Englisch/Deutsch/Französisch/Spanisch/Italienisch/Portugiesisch),
+  Preisverlauf, veraltete Preise, und der Unterschied zwischen Sammlungen
+  (nur Karten) und Sealed-Produkten (nicht sammlungsgebunden).
+
+### Neu — Sammel-Button "Alle aktualisieren" für veraltete Preise
+- Die Statistik-Ansicht listet Karten/Sealed-Produkte mit veraltetem Preis
+  einzeln auf, jede mit einem eigenen "Preis aktualisieren"-Button — bei
+  vielen veralteten Preisen musste bisher jede Zeile einzeln angeklickt
+  werden.
+- Neuer Button "Alle aktualisieren" über jeder der beiden Listen: aktualisiert
+  alle dort aufgeführten Preise nacheinander (mit Fortschrittsanzeige in der
+  Statusleiste), deaktiviert sich während des Laufs selbst und ist
+  ausgegraut, wenn die Liste leer ist.
+
+### Neu — Automatische Datenbank-Backups
+- Bisher gab es keinerlei Sicherung der `collection.db` — ein korrupter
+  Zustand oder eine fehlerhafte Migration hätte die ganze Sammlung kosten
+  können.
+- Neues Modul `app/database/backup.py`: kopiert die Datenbankdatei
+  automatisch mit Zeitstempel nach `data/backups/`, bevor
+  `Database.initialize()` Migrationen laufen lässt. Läuft nur, wenn die
+  Datei schon existiert (frische Installation hat nichts zu sichern), und
+  überspringt sich selbst, wenn die letzte Sicherung jünger als 24h ist
+  (verhindert eine Flut bei häufigen Neustarts). Behält maximal die
+  letzten 20 Sicherungen, ältere werden automatisch entfernt. Nie
+  blockierend: ein fehlgeschlagenes Backup verhindert nie den App-Start.
+
+### Neu — Cardmarket-Sucheautomatisierung mit Bestätigungsdialog
+- Für Karten ohne bekannte Cardmarket-Verknüpfung (z. B. "Poké Pad" aus
+  "Perfect Order", wo pokemontcg.io keinen Link hinterlegt hat) musste der
+  Link bisher von Hand recherchiert und über "Eigener Cardmarket-Link"
+  eingetragen werden.
+- Neuer Button "Cardmarket-Link suchen" im Kartendetail-Panel: durchsucht
+  Cardmarkets eigene Website-Suche automatisch und zeigt die Treffer zur
+  Bestätigung an (Name/Set/Nummer/Preis) — erst nach Bestätigung durch den
+  Nutzer wird ein Link übernommen, es wird nie automatisch geraten.
+- Technisch: Cardmarkets UI-Automatisierungs-Baum liefert nie die echte
+  URL eines Suchtreffers, nur sichtbaren Text. Live bestätigt: das UI-
+  Automation-*Invoke*-Pattern (nicht ein simulierter Klick) navigiert
+  zuverlässig zum echten Produkt, dessen Adresszeile danach ganz normal
+  ausgelesen werden kann — darüber wird die korrekte URL rekonstruiert.
+- Live end-to-end verifiziert: Suche nach "Poke Pad" findet u. a. das
+  echte "Perfect Order (POR 113)"-Ergebnis, dessen aufgelöste URL exakt
+  mit dem vom Nutzer bereitgestellten Cardmarket-Link übereinstimmt.
+
+### Neu — Set-Icon-Fallback über tcgdex.dev, wenn pokemontcg.io hinterherhinkt
+- Nutzer-Sorge: pokemontcg.io könnte für neue Sets vernachlässigt werden
+  (Beleg: "Perfect Order", erschienen 27.03.2026, hat dort Monate später
+  immer noch kein Set-Icon).
+- Recherche: live gegen tcgdex.dev geprüft (im Projekt schon für JP/KO/ZH-
+  Namenssuche genutzt) — "Perfect Order" ist dort bereits vollständig
+  vorhanden, inklusive eines funktionierenden Icons. Eine Idee, die
+  fehlende Cardmarket-Verknüpfung über tcgdex's Cardmarket-Produkt-ID
+  automatisch aufzulösen, wurde verworfen: drei plausible URL-Muster live
+  getestet, keins führt zur echten Produktseite bei Cardmarket.
+- Fix: `ensure_set_icon()` (`app/catalog/set_icon_cache.py`) fällt jetzt,
+  wenn pokemontcg.io kein Icon liefert, automatisch auf tcgdex.dev zurück
+  (neues Modul `app/catalog/tcgdex_set_icon.py`, Zuordnung über den
+  Set-Namen, da tcgdex eigene, unabhängige Set-IDs verwendet). Live
+  end-to-end verifiziert: "Perfect Order" lädt jetzt ein Icon.
+
+### Geändert — Karten-Tab: Spaltenüberschriften abgekürzt, Detailpanel schmaler
+- Nutzer-Fund: die schmal gehaltenen Sprache/Zustand/Menge-Spalten
+  schnitten die vollen Spaltenüberschriften ab ("...nguag", "...nditio").
+- Fix: neue abgekürzte Überschriften "Spr."/"Zust."/"Anz." (EN:
+  "Lang."/"Cond."/"Qty"), passend zur bewusst schmalen Spaltenbreite.
+- Zusätzlich auf Nutzerwunsch: Kartendetail-Panel (rechts) schmaler
+  gemacht (Mindestbreite 320→260px, Splitter-Anfangsbreite 360→290px) —
+  ein Karten-Artwork ist ohnehin schmal (2,5:3,5-Hochformat), im
+  Gegensatz zum breiteren Sealed-Produkt-Panel. Die frei werdende Breite
+  geht an die Kartentabelle (Splitter-Anfangsbreite 730→800px).
+
+### Behoben — Katalogsuche fand "Poké Pad" ohne Akzent nicht ("poke pad")
+- Nutzer-Fund: die Suche fand "Poké Pad" nur bei exakter Schreibweise mit
+  é, nicht bei "poke pad" oder "pokepad".
+- Ursache: pokemontcg.io foldet Akzente grundsätzlich nicht — auch nicht
+  bei einer Präfix-Wildcard-Suche gegen den zusammengeschriebenen
+  Gesamtnamen ("poke*", "pokepad*" finden nichts). Live bestätigt: eine
+  Suche nach "pad*" (dem zweiten, akzentfreien Wort) findet die Karte
+  aber, weil pokemontcg.io eine Präfix-Wildcard gegen jedes Wort im
+  Namensfeld prüft, nicht nur das erste.
+- Fix: der schrumpfende Präfix-Fallback in `catalog_search_service.py`
+  probiert jetzt zusätzlich jedes einzelne Wort der Anfrage einzeln
+  (längstes zuerst), nicht mehr nur Präfixe des gesamten
+  zusammengeschriebenen Namens.
+
+### Behoben — EX-Serie: falscher Set-Name durch pokemontcg.io (fehlendes "EX ")
+- Nutzer-Fund (mit Beleg: offizielle Übersicht der EX-Serie): pokemontcg.io
+  lässt bei der kompletten EX-Serie (EX Ruby & Sapphire bis EX Power
+  Keepers, 16 Sets) das führende "EX " in seinen eigenen Set-Namen weg
+  (z. B. nur "Sandstorm" statt "EX Sandstorm") — live gegen alle 16 Sets
+  bestätigt (IDs `ex1` bis `ex16`, exakt sequentiell, wie vom Nutzer
+  geliefert).
+- Fix: neue `_EX_SERIES_SET_NAMES`-Zuordnung in
+  `app/catalog/pokemontcg_client.py`, angewendet in `list_sets()` und beim
+  Parsen von Kartensuchergebnissen — Katalog-Treffer aus dieser Serie
+  zeigen jetzt korrekt "EX ..." statt des abgeschnittenen Namens, passend
+  zu Cardmarkets eigener Bezeichnung (und zu `resolve_set_code()`, das
+  diese Korrektur jetzt automatisch mitnutzt).
+- Migration 8 (`app/database/schema.py`) korrigiert zusätzlich bereits
+  bestehende Karten dieser 16 Sets rückwirkend in der Datenbank.
+
+### Neu — Set-Icon auch für manuell per Cardmarket-Link eingetragene Karten
+- Nutzer-Fund: eine per Katalogsuche hinzugefügte Karte ("Aerodactyl ex")
+  zeigt ein Set-Icon, eine manuell per Link eingetragene Karte aus
+  demselben Set ("Cacturne", EX Sandstorm) nicht — obwohl beide zum
+  gleichen Set gehören, wirkten sie in der Tabelle wie unterschiedliche
+  Sets.
+- Ursache: das Set-Icon wird über `card.set_code` geladen, das für manuell
+  eingetragene Karten nie gesetzt wurde (nur `set_name`, aus Cardmarkets
+  Titel/Breadcrumb geparst). Live bestätigt: pokemontcg.io kennt dieses Set
+  als `Sandstorm` (Code `ex2`), Cardmarket nennt es `EX Sandstorm` — beide
+  meinen dasselbe Set, nur mit leicht anderer Namensgebung.
+- Fix: neue `PokemonTcgClient.resolve_set_code()`-Methode löst den
+  Katalog-Code best-effort aus dem freien Set-Namen auf (exakter Treffer
+  zuerst, sonst „gegebener Name endet mit Katalog-Name“ als Fallback für
+  den abgeschnittenen „EX “-Präfix). Läuft im selben Hintergrund-Thread wie
+  der übrige "Karte manuell eintragen"-Ablauf (pokemontcg.io kann mehrere
+  Sekunden brauchen), blockiert die Karte nie, falls die Auflösung
+  fehlschlägt.
+
+### Behoben — Signed/1st-Edition/Altered-Filter waren serverseitig wirkungslos
+- Nutzer-Fund: manuell eingetragene Karte (Cacturne/Noktuska, EX Sandstorm)
+  als "nicht Reverse Holo" eingestellt, Preis-Abruf lieferte trotzdem
+  16€ — das ist der Preis der Reverse-Variante, die günstigste normale
+  Holo liegt bei 28€. Erste Einschätzung (falsch): das sei eine
+  Datenqualitäts-Eigenheit bei Cardmarket (Verkäufer kennzeichnet sein
+  Angebot nicht korrekt), kein eigener Bug.
+- Korrektur durch den Nutzer: er hat die echten URLs gepostet, die
+  Cardmarkets eigene Filter-Sidebar erzeugt, wenn man die Haken direkt
+  anklickt — `isSigned`, `isFirstEd`, `isAltered` und `isReverseHolo` sind
+  dort **alle vier** flache Top-Level-Parameter. Unser Code hatte
+  `isSigned`/`isFirstEd`/`isAltered` fälschlich als `extra[isSigned]` usw.
+  verschachtelt (Ergebnis einer früheren, falsch verifizierten
+  Recherche) — nur `isReverseHolo` war schon richtig bar. Die
+  unbekannten `extra[...]`-Parameter haben vermutlich das serverseitige
+  Filtern insgesamt lahmgelegt, statt nur ignoriert zu werden, wodurch am
+  Ende die komplette, ungefilterte Angebotsliste zurückkam.
+- Fix: `build_filtered_url()` in `browser_price_reader.py` nutzt jetzt für
+  alle vier Extras bare Parameter (`isSigned`/`isFirstEd`/`isAltered`/
+  `isReverseHolo`), keine mehr verschachtelt unter `extra[...]`.
+
+### Behoben — "Karte manuell eintragen" scheiterte lautlos bei Karten ohne Nummer
+- Nutzer-Fund (während des Tests eines neuen Features, siehe unten): beim
+  Anlegen von "Shining Mew" (Cardmarket-Kategorie "Unnumbered Promos") über
+  den Cardmarket-Link öffnete sich der Tab zwar mit der richtigen Seite,
+  aber es wurde kein Eintrag angelegt — ohne sichtbare Fehlermeldung im
+  Dialog (nur im Log).
+- Ursache: Cardmarkets Seitentitel hat für Karten ohne gedruckte Nummer
+  nicht "<Name> () - <Set> | Cardmarket" (leere Klammern), sondern lässt die
+  komplette "(Nummer) - Set"-Klausel weg — live bestätigt: nur "Shining
+  Mew | Cardmarket". Das bisherige Erkennungsmuster verlangte diese Klausel
+  zwingend, fand also nie einen Treffer und brach die Suche ohne Karte ab.
+- Fix: Fällt jetzt auf dasselbe schlichte "<Name> | Cardmarket"-Muster
+  zurück, das Sealed-Produkte schon nutzen, falls das ausführlichere Muster
+  nirgends passt — Set bleibt dann leer (wie die Kartennummer für solche
+  Promos ohnehin schon), beides im Dialog editierbar.
+
+### Neu — Bild-Erfassung auch für manuell per Cardmarket-Link eingetragene Karten
+- Nutzer-Fund: eine manuell eingetragene Karte (kein Katalog-Treffer) hatte
+  Preis und alles andere korrekt, aber kein Bild, obwohl Cardmarket eins
+  anzeigt.
+- Ursache: bislang bewusste Design-Entscheidung ("es gibt kein
+  Katalog-Bild für eine manuell eingetragene Karte") von vor dem
+  Sealed-Bild-Feature dieser Session.
+- Fix: derselbe Screenshot-Erfassungs-Mechanismus wie bei Sealed-Produkten
+  (`app.pricing.sealed_image_capture`, unverändert wiederverwendet) läuft
+  jetzt auch beim "Karte manuell eintragen"-Ablauf mit, im selben bereits
+  offenen Chrome-Tab. Best-effort wie bei Sealed: ein Fehlschlag beim
+  Bild-Fund blockiert das Anlegen der Karte nie.
+
+### Behoben — Sealed-Preis nahm bei Japanisch/Koreanisch/Chinesisch falsche Sprache
+- Nutzer-Fund: Sealed-Produkt mit Sprache "Japanisch" (Beispiel: "Abyss Eye
+  Booster Box", ein rein asiatisches Set ohne westliche Auflage) zeigte einen
+  Preis an, der tatsächlich nur von **koreanischen** Angeboten auf derselben
+  Seite stammte.
+- Erste Annahme (falsch, per Screenshot vom Nutzer widerlegt): Japanisch/
+  Koreanisch/Chinesisch seien bei Cardmarket eigene Produkte mit eigenem
+  Link, wie es für Einzelkarten tatsächlich zutrifft. Der Nutzer zeigte
+  jedoch Cardmarkets eigene Sprachfilter-Sidebar auf genau dieser
+  Sealed-Produktseite und bestätigte live per eigenem Klick auf die
+  Filter-Checkboxen: `?language=7` (Japanisch), `?language=10` (Koreanisch)
+  und `?language=11` (Traditionelles Chinesisch) filtern alle dieselbe
+  Seite — bei Sealed-Produkten ist das also, anders als bei Einzelkarten,
+  eine reine Sprachvariante derselben Seite.
+- Eigentliche Ursache: Der beim Anlegen/Bearbeiten gespeicherte Cardmarket-
+  Link bekam für Japanisch/Koreanisch/Chinesisch nie einen `?language=N`-
+  Filter angehängt (die dafür genutzte, Karten-spezifische Prüfung schließt
+  diese drei bewusst aus). Ohne Filter las die App die komplette,
+  ungefilterte Angebotsliste — und die Angebote der gesuchten Sprache lagen
+  in diesem Fall weiter unten auf der Seite, als das automatisierte Auslesen
+  erreichte, sodass am Ende nur koreanische Angebote ankamen.
+- Fix: Neue, Sealed-spezifische Sprach-ID-Zuordnung (ergänzt die bisherige,
+  weiterhin für Einzelkarten gültige um Japanisch=7/Koreanisch=10/
+  Traditionelles Chinesisch=11), damit der gespeicherte Link für Sealed-
+  Produkte auch bei diesen drei Sprachen korrekt gefiltert wird. Der
+  bestehende Schutz "kein Ausweich-Preis aus einer anderen Sprache" bleibt
+  für diese drei zusätzlich bestehen (jetzt korrekt begründet: es bedeutet
+  "aktuell keine Angebote in dieser Sprache", nicht mehr "falsches Produkt
+  verlinkt").
+- Nachtrag (Live-Test durch den Nutzer zeigte, dass der Preis-Abruf trotzdem
+  noch die volle Angebotsliste durchsuchte): Der Filter wurde bislang nur
+  beim Anlegen/Bearbeiten in den gespeicherten Link geschrieben — bereits
+  bestehende Produkte (z. B. das Test-Produkt "Abyss Eye Booster Box", vor
+  diesem Fix angelegt) behalten dadurch dauerhaft einen ungefilterten Link,
+  egal wie oft der Preis aktualisiert wird. Der Preis-Abruf berechnet den
+  `?language=N`-Filter jetzt bei **jedem** Aufruf frisch aus der
+  gespeicherten Produktsprache (wie bei Einzelkarten schon üblich), statt
+  sich auf den gespeicherten Link zu verlassen — behebt damit auch bereits
+  bestehende Produkte ohne erneutes Bearbeiten. `build_sealed_filtered_url`
+  ersetzt einen vorhandenen `?language=`-Parameter jetzt, statt ihn ein
+  zweites Mal anzuhängen (sonst hätte das erneute Anwenden bei bereits
+  gefilterten, neueren Links zu `?language=X&language=Y` geführt).
+
+### Geändert — Sealed-Produkt hinzufügen: ein Dialog statt zwei
+- Bisher: Link eingeben → (Chrome-Tab flackert kurz auf) → zweiter Dialog
+  zum Bestätigen von Name/Kategorie/Sprache/Menge. Nutzer-Feedback: der
+  Chrome-Tab dazwischen wirkte wie unerklärte, störende Aktivität.
+- Jetzt: **ein** Dialog (Link + Sprache + Menge + Notizen). Name **und**
+  Kategorie werden nach Bestätigen automatisch von Cardmarket übernommen
+  (Kategorie wie gehabt per Texterkennung geraten) — kein zweiter
+  Bestätigungsdialog mehr, explizit auf Nutzerwunsch ("nicht viel selbst
+  eintragen wollen"). Ein falsch erkannter Name/Kategorie lässt sich wie
+  gehabt über "Bearbeiten" korrigieren.
+- Neue `SealedProductAddDialog`-Klasse; `SealedEntryController` erstellt das
+  Produkt jetzt direkt nach erfolgreichem Cardmarket-Abruf, ohne Umweg über
+  einen zweiten, vom Panel gezeigten Dialog (die alte
+  `add_confirmed`-Signalkette und `SealedProductListPanel.prompt_add()`
+  sind entfernt, da nicht mehr gebraucht).
+
+### Hinzugefügt — Gesamtpreis-Spalte in der Sealed-Tabelle
+- Neben "Einzelpreis" (bisher nur "Preis" genannt) jetzt auch "Gesamtpreis"
+  (Einzelpreis × Menge) direkt in der Tabelle sichtbar — Nutzer-Feedback:
+  bei mehreren Exemplaren desselben Produkts (z. B. Booster in größerer
+  Stückzahl) war der Gesamtwert bisher nicht auf einen Blick ersichtlich.
+  Sortierbar wie alle anderen Spalten, mit demselben ⚠️-Hinweis bei
+  veraltetem Preis.
+
+### Behoben — Detailpanel-Preis-Button war nicht verdrahtet
+- Der neue "Preis von Cardmarket abrufen"-Button im Sealed-Detailpanel
+  (aus dem Detailpanel-Ausbau) hatte keine Verbindung zum eigentlichen
+  Preis-Controller — Klick tat schlicht nichts. `SealedPriceController`
+  bekommt jetzt (mirrors `PriceController` bei Karten) optional das
+  Detailpanel übergeben, verbindet dessen `price_lookup_requested`-Signal
+  und deaktiviert den Button für die Dauer der Preisabfrage.
+
+### Behoben — Sealed-Preisabruf fand nie einen Preis
+- Nach dem Detailpanel-Ausbau meldete "Preis von Cardmarket abrufen" für
+  Sealed-Produkte immer "kein Preis gefunden" — obwohl die Seite sichtbar
+  richtig geöffnet wurde. Ursache: Cardmarket zeigt die Sprache pro Angebot
+  in der Sprache der aufgerufenen Seite an (z. B. "Deutsch"/"Englisch" auf
+  `/de/`-URLs) — der Code kannte aber nur die englischen Wörter
+  ("German"/"English"). Bei Karten fällt das nicht auf (die erkennen
+  Angebote am sprachunabhängigen Zustands-Kürzel wie "NM"), bei
+  Sealed-Produkten (kein Zustand) ist die Sprache aber der einzige Anker.
+- **Sauberer Fix statt Flickenteppich pro Sprache:** Der eigentliche
+  Preis-Abruf (nicht das Anzeigen/Erfassen von Name & Kategorie!) läuft
+  jetzt immer über eine intern auf Englisch umgeschriebene Kopie der URL
+  (`with_canonical_locale()`), unabhängig davon, in welcher Sprache der
+  Nutzer seinen Cardmarket-Link eingefügt hat. Der **gespeicherte** Link
+  bleibt unverändert in der Original-Sprache. Damit funktioniert der
+  Preis-Abruf robust für jede Cardmarket-Locale (Deutsch, Französisch,
+  Spanisch, ...) ohne dass für jede Sprache eine eigene Wortliste gepflegt
+  werden müsste — wichtig, da die App perspektivisch für Nutzer in vielen
+  Ländern gedacht ist. Die zuvor ergänzte deutsche Wortliste bleibt als
+  zusätzliches Sicherheitsnetz bestehen.
+- **Zusätzlich entdeckt und behoben:** Cardmarkets eigener
+  Cookie-Consent-Banner kann beim allerersten Besuch einer Locale (z. B.
+  jeder neue Nutzer bei seinem allerersten Preis-Abruf überhaupt) die
+  eigentliche Seite kurz blockieren. Wird jetzt automatisch erkannt und
+  weggeklickt ("Nur erforderliche Cookies", nicht "Alle akzeptieren" —
+  entspricht der datensparsamen Voreinstellung).
+
+### Hinzugefügt — Sealed-Tab: Detailpanel, Produktbild, Preisverlauf
+- Der Sealed-Reiter ist jetzt strukturell wie der Karten-Reiter aufgebaut
+  (nur ohne Sammlungsspalte, da Sealed-Produkte weiterhin nicht sammlungs-
+  gebunden sind): neben der Liste zeigt ein neues Detailpanel
+  (`SealedProductDetailPanel`) das ausgewählte Produkt mit Bild,
+  Preis-Feldern und einem "Preis von Cardmarket abrufen"-Button.
+- Neues Produktbild: da es für Sealed-Produkte (anders als Karten via
+  pokemontcg.io) keine offizielle Bild-API gibt, wird das Foto beim
+  manuellen Eintragen per Screenshot direkt aus dem ohnehin schon für
+  Name/Kategorie geöffneten Cardmarket-Tab erfasst (`SealedArtworkView` +
+  `app/pricing/sealed_image_capture.py`): das zum Produktnamen passende
+  Bild-Element wird über Windows UI-Automation gefunden und per
+  `PrintWindow`-Screenshot zugeschnitten. Best-effort — schlägt die
+  Erfassung fehl, bleibt das Produkt einfach ohne Bild (wie bisher schon
+  bei manuell eingetragenen Karten ohne Katalog-Treffer).
+- Neuer Preisverlauf: eine neue `sealed_price_history`-Tabelle (Migration 7,
+  spiegelt `price_history`) speichert jetzt jede Preisermittlung als
+  Zeitreihe statt nur den letzten Wert. Ein neues, ausklappbares
+  `SealedPriceHistoryDock` (spiegelt `PriceHistoryDock`) zeigt den
+  Preisverlauf als Diagramm, exakt wie bei Karten.
+- Migration 7 ergänzt außerdem `sealed_products.photo_path`.
+
+### Behoben — Sealed-Cardmarket-Link berücksichtigte Sprache nicht
+- Beim manuellen Eintragen/Bearbeiten eines Sealed-Produkts wurde der
+  gespeicherte Cardmarket-Link nicht um Cardmarkets eigenen
+  `?language=N`-Filter ergänzt, obwohl genau dieser Filter für Einzelkarten
+  bereits funktioniert (live bestätigt) — der Nutzer hat per eigenem Test
+  bestätigt, dass er auch auf Sealed-Produktseiten identisch funktioniert
+  (Deutsch = `?language=3`). Der Link wird jetzt beim Anlegen und Bearbeiten
+  konsistent um den passenden Filter ergänzt (Englisch/Französisch/Deutsch/
+  Spanisch/Italienisch/Portugiesisch); Japanisch/Koreanisch/Chinesisch
+  bleiben unverändert, da das dort separate Cardmarket-Produkte sind, kein
+  Filter auf derselben Seite.
+
+### Hinzugefügt — Alle Tabellenspalten überall sortierbar
+- Kartenliste: bisher waren nur Name/Set/Sprache/Zustand sortierbar, jetzt
+  alle 8 Spalten inkl. Menge und Preis. Menge/Preis sortieren numerisch
+  (nicht alphabetisch) über eine neue `_NumericItem`-Klasse, die einen
+  separat gespeicherten Zahlenwert statt des angezeigten Texts vergleicht
+  ("10" würde alphabetisch vor "2" einsortiert werden). Unbepreiste Karten
+  sortieren als "billigste" (Sentinel-Wert, willkürliche aber konsistente
+  Konvention).
+- Sealed-Tab: Menge/Preis ebenso numerisch sortierbar gemacht (spiegelt
+  dieselbe `_NumericItem`-Klasse).
+- Statistik-Tab: alle Übersichtstabellen (Sammlungen, Wert nach Set/Sprache/
+  Zustand/Kategorie, teuerste Karten/Sealed-Produkte) jetzt sortierbar über
+  Qt-Bordmittel plus dieselben numerisch-/alphabetisch-bewussten Item-Typen.
+  Die beiden Tabellen mit veraltetem Preis (die einen "Preis aktualisieren"-
+  Button pro Zeile als Cell-Widget einbetten) sortieren stattdessen manuell:
+  Qt's eingebautes Sortieren verschiebt Zellen, lässt aber Cell-Widgets an
+  ihrer alten Zeilenposition zurück, was den Button vom falschen Eintrag
+  aus auslösen würde. Ein Klick auf die Kopfzeile sortiert stattdessen die
+  gespeicherten Einträge und rendert die Tabelle komplett neu (Buttons
+  werden dabei frisch erzeugt, bleiben also korrekt zugeordnet).
+
+### Geändert — Suchfeld etwas breiter
+- Feste Breite von 320px auf 420px erhöht (Nutzer-Feedback).
+
+### Behoben — Sealed-Add-Button war zentriert statt linksbündig
+- Nach Runde 2 stand "+ Sealed-Produkt hinzufügen" auf dem Sealed-Reiter
+  zentriert im Container statt linksbündig, da der Container auf die
+  breitere Karten-Kombination eingefroren ist. Ein `addStretch()` als
+  Fix führte zu einem neuen Problem: das Suchfeld (Standard-`SizePolicy
+  Expanding`) konkurrierte mit dem Stretch um denselben Restplatz und
+  wurde auf einen Bruchteil seiner Breite zusammengedrückt. Endgültiger
+  Fix: Suchfeld bekommt jetzt eine echte feste Breite (`setFixedWidth`)
+  statt nur eine maximale — dadurch gibt es keine Konkurrenz mehr, und
+  der abschließende Stretch schiebt zuverlässig nur echten Leerraum nach
+  rechts.
+
+### Behoben — Toolbar-Feinschliff Runde 2: Abstände links, Sealed-Button-Breite, Trenner
+- Suchfeld/"Suchen"/"Karte manuell eintragen" standen auf dem Karten-Reiter
+  unnötig weit auseinander: die eingefrorene Container-Breite wurde als
+  **Summe** aller vier möglichen Kinder berechnet (auch der nie gleichzeitig
+  sichtbaren Sealed- und Karten-Kombination), statt als **Maximum** der
+  beiden tatsächlich vorkommenden Kombinationen — der Container war dadurch
+  auf allen Reitern deutlich breiter als nötig, was sich als Lücken
+  zwischen den sichtbaren Elementen zeigte.
+- "+ Sealed-Produkt hinzufügen" war unnötig in die Breite gezogen (gleicher
+  Bug wie zuvor beim "Suchen"-Button: `QPushButton`-Standardgröße erlaubt
+  Wachstum) — jetzt ebenfalls fest auf Textgröße gedeckelt.
+- Der schwarze Trenner-Strich zwischen linker Gruppe und Reitern komplett
+  entfernt (unnötig, da beide Bereiche jetzt eindeutig durch den
+  dehnbaren Platzhalter dazwischen getrennt sind).
+
+### Behoben — Toolbar-Feinschliff: links wieder zu breit, rechts nicht bündig
+- Nach dem ersten Fix-Versuch per Screenshot aufgefallen: die linke
+  Such-/Aktions-Gruppe konnte sich noch über ihre eigentlich fixe Breite
+  hinaus strecken (ein einfaches `QWidget` behält Qt's "Grow"-Flag, auch
+  mit gesetzter Mindestbreite), wodurch bei einem breiteren Fenster eine
+  große Lücke vor den Reitern entstand. Jetzt echte `SizePolicy.Fixed` auf
+  dem Container plus ein eigener, transparenter Platzhalter-Widget
+  (`Expanding`) zwischen Trenner und Reitern, der genau diese Lücke
+  aufnimmt — Reiter/Export/Infos sitzen dadurch jetzt wirklich bündig am
+  rechten Rand, unabhängig von der Fensterbreite. Nebenbei: die fixe
+  Breite wird jetzt direkt aus den einzelnen Kind-Widgets berechnet statt
+  aus der (unzuverlässigen) `sizeHint()` des Containers selbst — die
+  unterschätzte, wie breit sich das Suchfeld eigentlich strecken darf, und
+  quetschte es sichtbar zusammen.
+
+### Geändert — Toolbar: linker Bereich zeigt jetzt tab-eigene Aktionen statt leer zu bleiben
+- Nutzer-Feedback (mit Photoshop-Annotation der Screenshots): der linke
+  Toolbar-Bereich sollte nie leer wirken. "+ Sealed-Produkt hinzufügen" ist
+  jetzt kein eingebetteter Button mehr im Sealed-Panel selbst, sondern sitzt
+  in der Toolbar an genau der Stelle, an der auf dem Karten-Reiter
+  Suchfeld/Suchen/"Karte manuell eintragen" stehen. Cards/Sealed/Statistik/
+  Export/Infos bleiben weiterhin fix auf der rechten Seite.
+
+### Behoben — Dunkle "Geisterbox" im Toolbar auf Sealed-/Statistik-Reiter
+- Nach dem morgendlichen Live-Check per Screenshot gefunden: der Container
+  für Suchfeld/Suchen/"Karte manuell eintragen" hatte kein `objectName` und
+  erbte dadurch die allgemeine `QWidget`-Regel (`background-color:
+  {Fenster-Hintergrund}`) — dunkler als die Toolbar selbst. Solange der
+  Container voller Inhalte war (Karten-Reiter), fiel das nicht auf; sobald
+  die Kinder auf Sealed/Statistik ausgeblendet waren, blieb ein deutlich
+  sichtbares dunkles Rechteck übrig. Fix: `objectName` + eine transparente
+  QSS-Regel dafür.
+
+### Hinzugefügt — Feste Sealed-Kategorien + Statistik für Sealed-Produkte
+- Sealed-Produkte hatten bisher eine reine Freitext-Kategorie (aus dem
+  Cardmarket-Seitentitel geraten) — jetzt gibt es eine recherchierte, feste
+  Liste (Booster Box, Elite Trainer Box, Booster Bundle, Booster Pack, Box
+  Set, Tin, Blister, Premium Collection, Build & Battle Box, Theme Deck,
+  Pin Collection, Sonstiges) als editierbares Dropdown im Hinzufügen-/
+  Bearbeiten-Dialog. Beim automatischen Eintragen per Cardmarket-Link wird
+  die geratene Kategorie jetzt auf diese feste Liste normalisiert (z. B.
+  Cardmarkets "Booster Boxes" → "Booster Box"), damit die Kategorie-Spalte
+  sinnvoll sortier-/gruppierbar ist.
+- Statistik-Tab bezieht jetzt auch Sealed-Produkte mit ein: eine neue
+  Portfolio-Übersicht ganz oben zeigt den kombinierten Gesamtwert (Karten +
+  Sealed) sowie zwei Kennzahl-Kacheln ("Karten"/"Sealed-Produkte"). Darunter
+  ein eigener "Sealed-Produkte"-Abschnitt mit Wert nach Kategorie, teuersten
+  Sealed-Produkten und Sealed-Produkten mit veraltetem Preis (inkl. Inline-
+  "Preis aktualisieren"-Knopf, wie bei Karten).
+- Der bisherige, sehr lange Statistik-Tab wurde optisch klarer gegliedert:
+  "Karten" und "Sealed-Produkte" sind jetzt zwei deutlich abgesetzte
+  Ober-Abschnitte (größere, unterstrichene Überschrift), die Portfolio-
+  Kennzahlen oben stehen in eigenen, abgehobenen Kacheln statt als reiner
+  Fließtext.
+
+### Recherchiert, nicht umgesetzt (erneut) — Graded-Karten-Preise
+- Live-Test bestätigt: 130point.com hat keine URL-basierte Suche und steht
+  unter Cloudflare-Schutz; interaktives Antippen des Suchfelds funktioniert
+  zwar technisch, würde aber die bewusste "keine Browser-Automation"-Grenze
+  dieses Projekts aufweichen. PSAs Population Report verlangt eine
+  Anmeldung. Bewusst kein Feature gebaut — Details in PROJECT_PROGRESS.md.
+
+### Behoben — Toolbar-Nachbesserung: riesiger Suchen-Button + Sealed-Sichtbarkeit
+- "Suchen"-Button wuchs fälschlich in den Leerraum ausgeblendeter Toolbar-
+  Elemente hinein (QPushButton-Standard-SizePolicy) — jetzt fest gedeckelt.
+  "Karte manuell eintragen" blieb auf dem Sealed-Reiter sichtbar, da
+  `QToolButton.setDefaultAction()` keine Sichtbarkeit synct — jetzt
+  explizit über den echten Button-Widget gesteuert.
+
+### Recherchiert, nicht umgesetzt — Graded-Karten-Preise (130point.com/PSA)
+- Live getestet: 130point.com hat keine per URL filterbare Suche (anders
+  als Cardmarket) und steht unter Cloudflare-Schutz; PSAs Population Report
+  verlangt inzwischen eine Anmeldung, die offizielle API deckt nur Cert-
+  Nummer-Verifikation ab. Bewusst kein Feature gebaut, um weder die
+  projekteigene "keine Browser-Automation"-Grenze aufzuweichen noch eine
+  Login-Umgehung vorzunehmen. Details in PROJECT_PROGRESS.md.
+
+### Geändert — Sealed-Produkte sind keiner Sammlung mehr zugeordnet
+- Anders als Karten (in physischen Ordnern/Ordnern sortiert) werden Sealed-
+  Produkte nicht so organisiert — der Sammlungsbezug wurde komplett entfernt
+  (neue Migration 6: `collection_id` aus `sealed_products` entfernt, da
+  SQLite eine Fremdschlüssel-Spalte nicht per `ALTER TABLE DROP COLUMN`
+  löschen kann — die Tabelle wird stattdessen neu aufgebaut). Der Sealed-
+  Reiter zeigt jetzt immer alle Sealed-Produkte, unabhängig von der links
+  ausgewählten Sammlung. Die "Verschieben"-Aktion entfällt dadurch für
+  Sealed-Produkte (ergibt ohne Sammlungen keinen Sinn mehr, bleibt aber für
+  Karten bestehen). Export "Sealed-Produkte" hat keine Sammlungsauswahl mehr
+  (immer "alle") — die Spalte "Sammlung" entfällt entsprechend in allen vier
+  Export-Formaten.
+
+### Geändert — Toolbar: fixe Reiter-Positionen, kein "Springen" mehr
+- Suchfeld, "Suchen" und "Karte manuell eintragen" stecken jetzt in einem
+  gemeinsamen Container mit fixer Mindestbreite, statt einzeln direkt auf
+  der Toolbar zu sitzen. Vorher verschob sich die Position der Reiter/
+  Export/Infos, je nachdem welche dieser drei Elemente gerade ein-/
+  ausgeblendet waren — jetzt bleiben sie an fester Position. Behebt dabei
+  auch einen Qt-Eigenheit-Bug: das Suchfeld blieb auf dem Sealed-Reiter
+  fälschlich sichtbar, weil ein direkt auf die Toolbar per `addWidget()`
+  gesetztes Widget sein eigenes `setVisible(False)` nach einem Style-/
+  Layout-Durchlauf wieder verlieren konnte.
+
+### Geändert — Reiter-Reihenfolge + Suchfeld/manuell eintragen nur bei "Karten"
+- Reiter-Reihenfolge jetzt Karten → Sealed → Statistik (vorher Karten →
+  Statistik → Sealed). Suchfeld, "Suchen" und "Karte manuell eintragen"
+  sind jetzt nur sichtbar, während der Karten-Reiter aktiv ist — genauso
+  wie der "+ Sealed-Produkt hinzufügen"-Knopf bereits ausschließlich im
+  Sealed-Reiter eingebettet ist.
+
+### Behoben — "Sealed-Produkt hinzufügen" wirkte wie "funktioniert nicht"
+- Ursache: ohne ausgewählte Sammlung zeigte der Knopf nur eine leicht zu
+  übersehende Statusleisten-Meldung an, statt sichtbar zu reagieren — exakt
+  das gleiche Muster, das schon einmal bei "Karte manuell eintragen" für
+  Verwirrung gesorgt hatte. Beide zeigen den Hinweis "Bitte zuerst eine
+  Sammlung auswählen" jetzt als echten, nicht zu übersehenden Dialog an.
+
+### Hinzugefügt — Karte/Sealed-Produkt zwischen Sammlungen verschieben
+- Neuer Kontextmenü-Punkt "Verschieben" in Kartenliste und Sealed-Liste:
+  Zielsammlung auswählen, fertig.
+
+### Hinzugefügt — Export: Typ-Auswahl Karten vs. Sealed-Produkte
+- Der Export-Dialog fragt jetzt zuerst, was exportiert werden soll (Karten
+  oder Sealed-Produkte), zusätzlich zu Format und Sammlung. Sealed-Produkte
+  bekommen eigene Spalten (Name/Kategorie/Sprache/Menge/Preis/...) in allen
+  vier Formaten.
+
+### Hinzugefügt — Sealed-Produkte (Booster-Boxen, Displays, ETBs, ...)
+- Neuer eigener Reiter "Sealed" neben "Karten"/"Statistik". Eintragen nur
+  per Cardmarket-Link (es gibt keinen Katalog für Sealed-Produkte wie bei
+  Karten) — Name/Kategorie werden aus dem Seitentitel/der Breadcrumb
+  gelesen. Eigene, vereinfachte Preisermittlung ohne Zustands-Leiter
+  (Cardmarket verkauft Sealed-Produkte ausschließlich versiegelt): nur
+  passende Sprache vs. jede Sprache.
+
+### Hinzugefügt — Sprachflaggen + farbige Zustands-Badges in der Kartenliste
+- Sprachcode-Text (DE/EN/…) durch ein kleines, selbst gezeichnetes,
+  zentriertes Flaggen-Icon ersetzt. Zustands-Zelle (MT/NM/EX/GD/LP/PL/PO)
+  zeigt jetzt ein farbiges Badge-Icon mit dem Kürzel (wie auf Cardmarket),
+  statt die ganze Zelle einzufärben.
+
+### Geändert — Toolbar-Reihenfolge + aktiver Reiter hervorgehoben + Fenstergröße
+- "Karte manuell eintragen" steht jetzt direkt neben "Suchen", gefolgt von
+  einem einzelnen Trenner und allen übrigen Punkten (Karten/Statistik/
+  Export/Infos und Einstellungen) als eine Gruppe. Dabei einen Bug
+  gefunden und behoben: der Knopf war versehentlich doppelt in der
+  Toolbar. "Karte manuell eintragen" ist jetzt wie "Suchen" ein solider
+  Button; der aktive Reiter ("Karten"/"Statistik") bekommt stattdessen nur
+  einen dezenten farbigen Unterstrich statt vollflächiger Farbe. Start-
+  Fenstergröße vergrößert (1650×900), damit die komplette Toolbar ohne
+  Überlauf-Pfeil sichtbar ist.
+
+### Behoben — Datum/Uhrzeit zu eng zusammen
+- Mehr Abstand zwischen Datum und Uhrzeit in Statistik/Preisverlauf/
+  Kartendetails. "Letzte Aktualisierung" in den Kartendetails zeigte
+  bisher einen unformatierten rohen Zeitstempel an.
+
+### Hinzugefügt — "Infos und Einstellungen" + zweisprachige Oberfläche (DE/EN)
+- Neuer Toolbar-Knopf mit App-Infos/Quellen und einer Sprachauswahl
+  Deutsch/Englisch (wirksam nach Neustart). Die komplette Oberfläche ist
+  jetzt übersetzt.
+
+### Hinzugefügt — Karte manuell per Cardmarket-Link eintragen
+- Neuer Toolbar-Knopf "Karte manuell eintragen": Cardmarket-Produktlink
+  einfügen, die App öffnet einen Chrome-Tab, liest Name/Set/Kartennummer aus
+  dem Seitentitel und öffnet den gewohnten Hinzufügen-Dialog (Felder dabei
+  editierbar) — der Link wird direkt als eigener Cardmarket-Link
+  hinterlegt, ganz ohne Katalog-Suche/Zuordnungs-Heuristik.
+
+### Geändert — Toolbar aufgeräumt
+- Scanner- und "Cardmarket-Preise aktualisieren"-Knopf entfernt (Scanner
+  vorerst verworfen; der Sammel-Update-Knopf tat ohnehin nie mehr als eine
+  Erklärung anzuzeigen — Preise werden weiterhin pro Karte einzeln über den
+  Knopf in den Kartendetails abgerufen). Alle verbleibenden Toolbar-Knöpfe
+  sind jetzt reine Textbuttons ohne Icon.
+
+### Behoben — Reverse Holo hatte fälschlich keinen Cardmarket-Preisfilter
+- Frühere Recherche hatte angenommen, Cardmarket biete keinen Reverse-Holo-
+  Filter — vom Nutzer per echtem Link widerlegt und live nachgeprüft
+  (`?isReverseHolo=Y`, ein Yes/No-Filter direkt im Produktseiten-Formular).
+  Reverse-Holo-Karten werden jetzt genauso wie Signiert/1st Edition/Altered
+  auf jeder Preis-Leiter-Stufe verbindlich gefiltert.
+
+### Behoben — Vintage-Sets mit mehreren Cardmarket-Produktversionen
+- Base Set & ähnliche Sets können eine Sprache als eigenständiges
+  Cardmarket-Produkt unter einer Nachbar-Versionsnummer führen (statt
+  eines Filters auf derselben Seite) — die App probiert jetzt genau eine
+  Alternativ-Version (nie mehr), nach einer bewussten Pause, bevor sie
+  aufgibt.
+
+### Hinzugefügt — Export (CSV/Excel/JSON/PDF)
+- Sammlung (eine oder alle) über den Toolbar-„Export"-Knopf in eines von
+  vier Formaten exportieren, mit nativem „Speichern unter"-Dialog.
+
+### Behoben — Tolerante Suche scheiterte an Varianten-Wörtern wie "holo"
+- "xatu skyridge holo" fand 0 Treffer, obwohl "xatu skyridge" funktionierte
+  — "holo" wird jetzt als Druckvariante erkannt und aus der Namenssuche
+  entfernt, statt fälschlich als Teil des Kartennamens behandelt zu werden.
+
+### Hinzugefügt — Sortierbare Spalten in der Kartenliste
+- Klick auf Name/Set/Sprache/Zustand sortiert die Kartenliste alphabetisch
+  (nochmaliger Klick kehrt die Richtung um). Die Sortierung bleibt auch
+  nach dem nächsten Aktualisieren der Liste erhalten.
+
+### Behoben — Preis-Lookup las die Cardmarket-Seite manchmal zu früh aus
+- Die Seite hatte sich schon umbenannt (Fenstertitel korrekt), aber der
+  eigentliche Inhalt (Angebotstabelle) war noch nicht fertig gerendert —
+  die App erfasste dann nur die Chrome-Oberfläche und meldete "keine
+  Angebote gefunden". Wartet jetzt automatisch länger, wenn die erste
+  Erfassung auffällig dünn ausfällt.
+
+### Verbessert — Cardmarket-Link-Auflösung robuster gegen Timeouts
+- Ein Timeout beim Auflösen von pokemontcg.ios Tracking-Kurzlink zur
+  echten Cardmarket-Seite ließ den Browser den unaufgelösten Kurzlink
+  öffnen (keine echte Produktseite). Wird jetzt einmal wiederholt.
+
+### Verbessert — Katalogsuche robuster gegen kurzzeitige pokemontcg.io-Aussetzer
+- Eine einzelne Zeitüberschreitung ließ die ganze Suche mit "Kartenkatalog
+  nicht erreichbar" scheitern. Wird jetzt einmal automatisch wiederholt,
+  bevor aufgegeben wird.
+
+### Behoben — Zweisprachige Suche mit Karten-Suffix ("Blitza VMAX")
+- Fremdsprachige Namen mit einem Karten-Typ-Suffix (VMAX/EX/GX/V/ex)
+  fanden bisher gar nichts, obwohl der reine Artname allein funktionierte
+  ("Blitza" ja, "Blitza VMAX" nein) — betraf praktisch jede moderne Karte.
+  Übersetzt jetzt den Artnamen-Teil und hängt den Suffix wieder an.
+
+### Behoben — Preise auf englisch formatierten Cardmarket-Seiten erkannt
+- Die Preis-Erkennung erwartete nur deutsches Zahlenformat ("1.550,00 €")
+  und meldete auf `/en/`-Seiten ("1,550.00 €") fälschlich "keine Angebote
+  gefunden". Erkennt jetzt beide Formate unabhängig von der Locale.
+
+### Hinzugefügt — Bezeichnungsvorschlag für JP/KO/ZH-Karten (nie Preise)
+- Wenn die automatische Preisermittlung für Japanisch/Koreanisch/
+  Chinesisch abbricht, schlägt die App jetzt zusätzlich (über tcgdex.dev,
+  ausschließlich Namen/Sets, nie Preise) die wahrscheinliche Cardmarket-
+  Bezeichnung vor, damit sie schneller von Hand gesucht werden kann.
+  Kandidaten mit unplausiblem zeitlichem Abstand (z. B. moderne Karten
+  ohne echte tcgdex-Abdeckung wie Umbreon VMAX) werden verworfen statt
+  geraten.
+
+### Behoben/Hinzugefügt — JP/KO/ZH-Preisermittlung (Zwischenlösung)
+- Preis-Lookup berechnet für Japanisch/Koreanisch/Chinesisch nicht mehr
+  stillschweigend einen falschen Preis vom (falschen) westlichen
+  Cardmarket-Produkt, sondern bricht mit klarer Begründung ab.
+- Neues Feld „Eigener Cardmarket-Link“ im Karten-Dialog: eigenen,
+  korrekten Link hinterlegen, um die Preisermittlung für diese Karte zu
+  aktivieren (funktioniert auch als genereller Override für jede andere
+  Karte).
+
+### Hinzugefügt — Set-Symbole überall, wo ein Set-Name steht
+- Offizielle pokemontcg.io-Set-Icons in Kartenliste, Kartendetails,
+  Katalog-Suchergebnissen und allen Statistik-Tabellen (Kartenliste,
+  veraltete Preise, teuerste Karten, Wert nach Set).
+
+### Behoben — Preis-Lookup aktualisierte den Preis nicht trotz korrekt geöffnetem Tab
+- `AllowSetForegroundWindow(ASFW_ANY)` vor dem Chrome-Start behebt eine
+  Windows-Fokus-Diebstahl-Sperre: der Preis-Lookup lief in ein Timeout
+  ("Cardmarket-Tab ... nicht rechtzeitig gefunden"), obwohl die richtige
+  Seite bereits sichtbar geöffnet war, weil die Fensteraktivierung aus
+  einem Hintergrund-Thread kam.
+
+### Hinzugefügt — Toleranteres Suchen: Sonderzeichen + zweisprachige Namen
+- Suche (Katalog **und** eigene Sammlung) ist jetzt Akzent-/Bindestrich-/
+  Leerzeichen-unempfindlich: "pokepad"/"poke pad" findet "Poképad",
+  "hooh"/"ho oh" findet "Ho-Oh".
+- Kartennamen sind jetzt auch in ihrer Übersetzung suchbar (statische, aus
+  der PokeAPI generierte Übersetzungstabelle für 1025 Spezies): "Turtok"
+  findet "Blastoise", "Bisaflor" findet "Venusaur" — sowohl im Katalog als
+  auch in der eigenen Sammlung.
+
 ### Hinzugefügt/Behoben — Dritte Nachbesserung zu Schritt 10: Statistiken
 - "Preis aktualisieren"-Button in der Statistik-Tabelle war abgeschnitten:
   Spaltenbreite und (der eigentliche Grund) Zeilenhöhe waren zu klein, da

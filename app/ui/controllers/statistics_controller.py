@@ -29,3 +29,15 @@ class StatisticsController(QObject):
     def refresh(self) -> None:
         """Recompute the overview and render it into the panel."""
         self._panel.show_overview(self._service.compute_overview())
+
+    def set_bulk_card_update_running(self, running: bool) -> None:
+        """Forwards to the panel -- lets ``PriceController`` toggle the
+
+        "Alle aktualisieren" button's state without needing a direct
+        ``StatisticsPanel`` reference of its own.
+        """
+        self._panel.set_bulk_update_running(running)
+
+    def set_bulk_sealed_update_running(self, running: bool) -> None:
+        """Mirrors ``set_bulk_card_update_running`` for sealed products."""
+        self._panel.set_sealed_bulk_update_running(running)

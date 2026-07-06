@@ -34,11 +34,9 @@ class Card:
     condition: Condition = Condition.NEAR_MINT
 
     # Extras. Each an independent yes/no, matching how Cardmarket itself
-    # treats them (``extra[isSigned]``/``extra[isFirstEd]``/
-    # ``extra[isAltered]`` filters) — a real card can be any combination,
-    # e.g. signed *and* reverse holo at once. Reverse Holo has no Cardmarket
-    # filter equivalent (not exposed on the product page at all); it's kept
-    # here purely for the collector's own record and the artwork overlay.
+    # treats them (``isSigned``/``isFirstEd``/``isAltered``/
+    # ``isReverseHolo`` filters, all bare top-level params) — a real card
+    # can be any combination, e.g. signed *and* reverse holo at once.
     is_reverse_holo: bool = False
     is_signed: bool = False
     is_first_edition: bool = False
@@ -52,6 +50,12 @@ class Card:
     # Links to external catalogue / marketplace.
     external_card_id: str | None = None
     cardmarket_url: str | None = None
+    #: User-supplied override, used instead of ``cardmarket_url`` for price
+    #: lookups when set. Needed for Japanese/Korean/Chinese prints:
+    #: pokemontcg.io's own ``cardmarket_url`` always points at the *Western*
+    #: product, a separate, wrong Cardmarket listing for those languages
+    #: (see ``app.pricing.browser_price_reader.supports_language_filter``).
+    manual_cardmarket_url: str | None = None
 
     # Latest price snapshot (full history lives in ``price_history``).
     current_price: float | None = None
@@ -89,6 +93,7 @@ class CardDetailsValues:
     is_signed: bool = False
     is_first_edition: bool = False
     is_altered: bool = False
+    manual_cardmarket_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

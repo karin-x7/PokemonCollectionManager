@@ -14,13 +14,18 @@ from __future__ import annotations
 from dataclasses import replace
 
 from PySide6.QtCore import QObject
+from PySide6.QtWidgets import QDialog
 
 from app.catalog.models import CatalogCard
 from app.database.repositories.price_repository import PriceRepository
+from app.i18n import tr
 from app.logging_config import get_logger
 from app.models.card import Card, CardDetailsValues, CardFilter
+from app.pricing.models import ProductInfo
 from app.services.card_service import CardService
+from app.services.collection_service import CollectionService
 from app.services.exceptions import ServiceError
+from app.ui.dialogs.move_dialog import MoveDialog
 from app.ui.widgets.card_detail_panel import CardDetailPanel
 from app.ui.widgets.card_list_panel import CardListPanel
 from app.ui.widgets.price_history_dock import PriceHistoryDock
@@ -36,6 +41,7 @@ class CardController(QObject):
         panel: CardListPanel,
         detail_panel: CardDetailPanel,
         service: CardService,
+        collection_service: CollectionService,
         price_repository: PriceRepository | None = None,
         history_dock: PriceHistoryDock | None = None,
         parent: QObject | None = None,
@@ -44,6 +50,7 @@ class CardController(QObject):
         self._panel = panel
         self._detail_panel = detail_panel
         self._service = service
+        self._collections = collection_service
         self._prices = price_repository
         self._history_dock = history_dock
         self._collection_id: int | None = None
@@ -52,8 +59,11 @@ class CardController(QObject):
 
         panel.selection_changed.connect(self._on_selection_changed)
         panel.add_confirmed.connect(self._on_add_confirmed)
+        panel.manual_add_confirmed.connect(self._on_manual_add_confirmed)
         panel.edit_requested.connect(self._on_edit)
+        panel.price_edit_requested.connect(self._on_price_edit)
         panel.delete_requested.connect(self._on_delete)
+        panel.move_requested.connect(self._on_move_requested)
         panel.filter_bar.filter_changed.connect(self._on_filter_changed)
         panel.filter_bar.scope_changed.connect(self._on_scope_changed)
         if history_dock is not None:
@@ -92,10 +102,15 @@ class CardController(QObject):
         self._search_all_collections = search_all_collections
         self.refresh()
 
+    @property
+    def collection_id(self) -> int | None:
+        """The currently selected collection's id, or ``None`` if none is."""
+        return self._collection_id
+
     def add_from_catalog(self, catalog_card: CatalogCard) -> None:
         """Start the add-card flow for a catalogue match the user picked."""
         if self._collection_id is None:
-            self._panel.show_error("Bitte zuerst eine Sammlung auswählen.")
+            self._panel.show_error(tr("Bitte zuerst eine Sammlung auswählen."))
             return
         self._panel.prompt_add_from_catalog(catalog_card)
 
@@ -111,6 +126,35 @@ class CardController(QObject):
         self._panel.select_card(card.id)
         self._sync_detail_panel()
 
+    def prompt_add_manual(self, info: ProductInfo, url: str) -> None:
+        """Start the add-card flow for a manually-entered Cardmarket link."""
+        if self._collection_id is None:
+            self._panel.show_error(tr("Bitte zuerst eine Sammlung auswählen."))
+            return
+        self._panel.prompt_add_manual(info, url)
+
+    def _on_manual_add_confirmed(
+        self,
+        name: str,
+        set_name: str,
+        card_number: str,
+        values: CardDetailsValues,
+        photo_path: str | None,
+        set_code: str,
+    ) -> None:
+        if self._collection_id is None:
+            return
+        try:
+            card = self._service.add_card_manual(
+                self._collection_id, name, set_name, card_number, values, photo_path, set_code
+            )
+        except ServiceError as exc:
+            self._panel.show_error(str(exc))
+            return
+        self.refresh()
+        self._panel.select_card(card.id)
+        self._sync_detail_panel()
+
     def _on_edit(self, card_id: int, values: CardDetailsValues) -> None:
         try:
             self._service.update_card_details(card_id, values)
@@ -118,11 +162,53 @@ class CardController(QObject):
             self._panel.show_error(str(exc))
         self.refresh()
 
-    def _on_delete(self, card_id: int) -> None:
+    def _on_price_edit(self, card_id: int, price: float) -> None:
         try:
-            self._service.remove_card(card_id)
+            self._service.set_manual_price(card_id, price)
         except ServiceError as exc:
             self._panel.show_error(str(exc))
+        self.refresh()
+
+    def _on_delete(self, card_ids: list[int]) -> None:
+        errors: list[str] = []
+        for card_id in card_ids:
+            try:
+                self._service.remove_card(card_id)
+            except ServiceError as exc:
+                errors.append(str(exc))
+        if errors:
+            self._panel.show_error("\n".join(errors))
+        self.refresh()
+
+    def _on_move_requested(self, card_ids: list[int]) -> None:
+        if not card_ids:
+            return
+        cards = [self._service.get_card(card_id) for card_id in card_ids]
+        # Excluding the selection's own collection only makes sense when
+        # every selected card actually shares one -- a mixed-collection
+        # selection (possible via "search all collections") has no single
+        # "own" collection to exclude, so every collection stays a valid
+        # target then.
+        collection_ids = {card.collection_id for card in cards}
+        exclude = collection_ids if len(collection_ids) == 1 else set()
+        others = [c for c in self._collections.list_collections() if c.id not in exclude]
+        if not others:
+            self._panel.show_error(
+                tr("Es gibt keine andere Sammlung, in die verschoben werden könnte.")
+            )
+            return
+        dialog = MoveDialog(others, parent=self._panel)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        target_id = dialog.get_target_collection_id()
+        errors: list[str] = []
+        for card_id in card_ids:
+            try:
+                self._service.move_card(card_id, target_id)
+            except ServiceError as exc:
+                errors.append(str(exc))
+        if errors:
+            self._panel.show_error("\n".join(errors))
         self.refresh()
 
     def _on_selection_changed(self, card_id: int) -> None:

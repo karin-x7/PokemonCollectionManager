@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.models import Card, Collection, Condition, Language, PriceQuality, PriceRecord
+from app.models.enums import SealedCategory
 
 
 def test_condition_ordering_and_distance() -> None:
@@ -21,6 +22,26 @@ def test_price_quality_labels_and_lookup() -> None:
     assert PriceQuality.EXACT.label == "Exakter Treffer"
     assert PriceQuality.from_value("average") is PriceQuality.AVERAGE
     assert PriceQuality.from_value("bogus") is PriceQuality.NO_PRICE
+
+
+def test_sealed_category_lookup() -> None:
+    assert SealedCategory.from_code("tin") is SealedCategory.TIN
+    assert SealedCategory.from_code("bogus") is SealedCategory.OTHER
+    assert SealedCategory.from_code(None) is SealedCategory.OTHER
+
+
+def test_sealed_category_guess_from_text() -> None:
+    # Cardmarket's own plural breadcrumb wording.
+    assert SealedCategory.guess_from_text("Booster Boxes") is SealedCategory.BOOSTER_BOX
+    assert SealedCategory.guess_from_text("Elite Trainer Boxes") is SealedCategory.ELITE_TRAINER_BOX
+    assert SealedCategory.guess_from_text("Tins") is SealedCategory.TIN
+    assert SealedCategory.guess_from_text("Blisters") is SealedCategory.BLISTER
+    # A more specific keyword must win over a shorter one it also contains.
+    assert SealedCategory.guess_from_text("Booster Box") is SealedCategory.BOOSTER_BOX
+    assert SealedCategory.guess_from_text("Boosters") is SealedCategory.BOOSTER_PACK
+    # Unrecognised text falls back to OTHER rather than raising.
+    assert SealedCategory.guess_from_text("Something Entirely New") is SealedCategory.OTHER
+    assert SealedCategory.guess_from_text("") is SealedCategory.OTHER
 
 
 def test_card_total_value() -> None:

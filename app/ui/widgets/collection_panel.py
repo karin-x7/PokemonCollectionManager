@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.i18n import tr
 from app.models.collection import Collection
 
 _ID_ROLE = Qt.ItemDataRole.UserRole
@@ -54,7 +55,7 @@ class CollectionPanel(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
 
-        header = QLabel("Sammlungen")
+        header = QLabel(tr("Sammlungen"))
         header.setObjectName("PanelHeader")
         layout.addWidget(header)
 
@@ -67,7 +68,7 @@ class CollectionPanel(QWidget):
         self._list.model().rowsMoved.connect(self._on_rows_moved)
         layout.addWidget(self._list, stretch=1)
 
-        add_button = QPushButton("+ Neue Sammlung")
+        add_button = QPushButton(tr("+ Neue Sammlung"))
         add_button.clicked.connect(self._prompt_create)
         layout.addWidget(add_button)
 
@@ -98,7 +99,7 @@ class CollectionPanel(QWidget):
 
     def show_error(self, message: str) -> None:
         """Display a friendly error message to the user."""
-        QMessageBox.warning(self, "Sammlungen", message)
+        QMessageBox.warning(self, tr("Sammlungen"), message)
 
     # -- Internals ---------------------------------------------------------- #
 
@@ -118,14 +119,14 @@ class CollectionPanel(QWidget):
         self.selection_changed.emit(collection_id if collection_id is not None else -1)
 
     def _prompt_create(self) -> None:
-        name, ok = QInputDialog.getText(self, "Neue Sammlung", "Name der Sammlung:")
+        name, ok = QInputDialog.getText(self, tr("Neue Sammlung"), tr("Name der Sammlung:"))
         if ok and name.strip():
             self.create_requested.emit(name.strip())
 
     def _prompt_rename(self, item: QListWidgetItem) -> None:
         collection_id = item.data(_ID_ROLE)
         new_name, ok = QInputDialog.getText(
-            self, "Sammlung umbenennen", "Neuer Name:", text=item.text()
+            self, tr("Sammlung umbenennen"), tr("Neuer Name:"), text=item.text()
         )
         if ok and new_name.strip() and new_name.strip() != item.text():
             self.rename_requested.emit(collection_id, new_name.strip())
@@ -134,9 +135,11 @@ class CollectionPanel(QWidget):
         collection_id = item.data(_ID_ROLE)
         answer = QMessageBox.question(
             self,
-            "Sammlung löschen",
-            f"Soll die Sammlung „{item.text()}“ wirklich gelöscht werden?\n"
-            "Alle enthaltenen Karten werden dabei ebenfalls gelöscht.",
+            tr("Sammlung löschen"),
+            tr(
+                "Soll die Sammlung „{name}“ wirklich gelöscht werden?\n"
+                "Alle enthaltenen Karten werden dabei ebenfalls gelöscht."
+            ).format(name=item.text()),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -148,8 +151,8 @@ class CollectionPanel(QWidget):
         if item is None:
             return
         menu = QMenu(self)
-        rename_action = menu.addAction("Umbenennen")
-        delete_action = menu.addAction("Löschen")
+        rename_action = menu.addAction(tr("Umbenennen"))
+        delete_action = menu.addAction(tr("Löschen"))
         chosen = menu.exec(self._list.viewport().mapToGlobal(position))
         if chosen is rename_action:
             self._prompt_rename(item)

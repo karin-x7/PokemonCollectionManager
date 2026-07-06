@@ -48,6 +48,17 @@ class CollectionController(QObject):
         """Reload the collection list from the database into the panel."""
         self._panel.set_collections(self._service.list_collections())
 
+    def select_first_collection(self) -> None:
+        """Select whichever collection currently sorts first in the sidebar.
+
+        Called once at startup (user request): shows that collection's
+        cards immediately instead of an empty list requiring a manual pick.
+        A no-op if there are no collections yet.
+        """
+        collections = self._service.list_collections()
+        if collections:
+            self._panel.select_collection(collections[0].id)
+
     def _on_create(self, name: str) -> None:
         try:
             created = self._service.create_collection(name)

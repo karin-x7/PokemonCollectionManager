@@ -19,6 +19,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QWidget
 
+from app.i18n import tr
 from app.ui.theme import PALETTE
 
 _REVERSE_HOLO_GRADIENT_STOPS = (
@@ -93,7 +94,7 @@ class CardArtworkView(QWidget):
 
         if self._pixmap is None:
             painter.setPen(QColor(PALETTE.muted))
-            painter.drawText(card_rect, Qt.AlignmentFlag.AlignCenter, "Kein Foto")
+            painter.drawText(card_rect, Qt.AlignmentFlag.AlignCenter, tr("Kein Foto"))
             painter.end()
             return
 

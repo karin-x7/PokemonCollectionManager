@@ -98,10 +98,41 @@ def test_update_details_persists_new_values(repo: CardRepository, collection_id:
     assert updated.notes == "neu"
 
 
+def test_manual_cardmarket_url_persists_via_create_and_update_details(
+    repo: CardRepository, collection_id: int
+) -> None:
+    created = repo.create(
+        _new_card(collection_id, manual_cardmarket_url="https://example.com/awakening-legends")
+    )
+    assert repo.get(created.id).manual_cardmarket_url == "https://example.com/awakening-legends"
+
+    repo.update_details(
+        created.id,
+        CardDetailsValues(
+            language=Language.JAPANESE,
+            condition=Condition.NEAR_MINT,
+            quantity=1,
+            manual_cardmarket_url="https://example.com/other-link",
+        ),
+    )
+    assert repo.get(created.id).manual_cardmarket_url == "https://example.com/other-link"
+
+
 def test_delete_removes_card(repo: CardRepository, collection_id: int) -> None:
     created = repo.create(_new_card(collection_id))
     repo.delete(created.id)
     assert repo.get(created.id) is None
+
+
+def test_move_changes_collection_id(
+    repo: CardRepository, temp_db: Database, collection_id: int
+) -> None:
+    other_id = CollectionRepository(temp_db).create("Vintage 3").id
+    created = repo.create(_new_card(collection_id))
+
+    repo.move(created.id, other_id)
+
+    assert repo.get(created.id).collection_id == other_id
 
 
 def test_update_price_persists_new_values(repo: CardRepository, collection_id: int) -> None:
@@ -152,6 +183,16 @@ def test_update_cardmarket_url_persists(repo: CardRepository, collection_id: int
     assert updated.cardmarket_url == "https://prices.pokemontcg.io/cardmarket/skg-h32"
 
 
+def test_update_manual_cardmarket_url_persists(repo: CardRepository, collection_id: int) -> None:
+    created = repo.create(_new_card(collection_id))
+    url = "https://www.cardmarket.com/en/Pokemon/Products/Singles/Perfect-Order/Poke-Pad-V2-POR113"
+
+    repo.update_manual_cardmarket_url(created.id, url)
+
+    updated = repo.get(created.id)
+    assert updated.manual_cardmarket_url == url
+
+
 # -- search() ---------------------------------------------------------------- #
 
 
@@ -190,6 +231,38 @@ def test_search_text_matches_name_set_number_or_notes(
 
     assert [c.name for c in by_name] == ["Xatu"]
     assert [c.name for c in by_notes] == ["Xatu"]
+
+
+def test_search_text_is_accent_insensitive(repo: CardRepository, collection_id: int) -> None:
+    repo.create(_new_card(collection_id, name="Poképad", notes=""))
+
+    for query in ("poke pad", "pokepad", "poképad"):
+        assert [c.name for c in repo.search(
+            CardFilter(collection_id=collection_id, search_text=query)
+        )] == ["Poképad"]
+
+
+def test_search_text_is_hyphen_insensitive(repo: CardRepository, collection_id: int) -> None:
+    repo.create(_new_card(collection_id, name="Ho-Oh", notes=""))
+
+    for query in ("hooh", "ho oh", "ho-oh"):
+        assert [c.name for c in repo.search(
+            CardFilter(collection_id=collection_id, search_text=query)
+        )] == ["Ho-Oh"]
+
+
+def test_search_text_matches_foreign_language_name(
+    repo: CardRepository, collection_id: int, monkeypatch
+) -> None:
+    repo.create(_new_card(collection_id, name="Blastoise", notes=""))
+    monkeypatch.setattr(
+        "app.database.repositories.card_repository.translate_to_english",
+        lambda term: "Blastoise" if term.casefold() == "turtok" else None,
+    )
+
+    results = repo.search(CardFilter(collection_id=collection_id, search_text="Turtok"))
+
+    assert [c.name for c in results] == ["Blastoise"]
 
 
 def test_search_filters_by_set_language_condition(

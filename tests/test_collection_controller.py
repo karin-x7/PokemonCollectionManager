@@ -91,3 +91,30 @@ def test_selection_changed_is_forwarded_by_controller(controller: CollectionCont
     controller._panel.selection_changed.emit(42)
 
     assert received == [42]
+
+
+def test_select_first_collection_selects_the_first_one(
+    controller: CollectionController,
+) -> None:
+    controller._panel.create_requested.emit("Binder")
+    controller._panel.create_requested.emit("Vintage")
+    received: list[int] = []
+    controller.selection_changed.connect(received.append)
+    first_id = controller._service.list_collections()[0].id
+
+    controller.select_first_collection()
+
+    assert controller._panel.selected_collection_id() == first_id
+    assert received == [first_id]
+
+
+def test_select_first_collection_is_a_no_op_when_none_exist(
+    controller: CollectionController,
+) -> None:
+    received: list[int] = []
+    controller.selection_changed.connect(received.append)
+
+    controller.select_first_collection()
+
+    assert received == []
+    assert controller._panel.selected_collection_id() is None
