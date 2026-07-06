@@ -3,7 +3,27 @@
 > Synchronisationsdatei zwischen mehreren PCs. Enthält jederzeit den aktuellen
 > Entwicklungsstand. Wird nach **jedem** Entwicklungsschritt aktualisiert.
 
-**Letzter Schritt:** Fertigstellung/Release-Vorbereitung für den ersten
+**Letzter Schritt:** Kleiner, vom Nutzer nach dem v0.9.0-alpha.1-Release
+gemeldeter Bug: Zeilen in der Kartentabelle waren unterschiedlich hoch.
+Ursache gefunden: `CardListPanel.set_cards()` rief bisher
+`self._table.resizeRowsToContents()` auf, was jede Zeile nach ihrem
+größten Zellinhalt bemisst — Set-Icons werden aber von unterschiedlichen
+Quellen (pokemontcg.io, tcgdex-Fallback) in unterschiedlicher nativer
+Auflösung geladen (`app/ui/set_icon_provider.py`s `QIcon(path)` ohne jede
+Größennormalisierung), wodurch jede Zeile je nach enthaltenem Set-Icon
+eine andere Höhe bekam. Fix: `resizeRowsToContents()`-Aufruf entfernt,
+stattdessen einmalig in `_build()` eine feste Zeilenhöhe gesetzt
+(`verticalHeader().setSectionResizeMode(Fixed)` +
+`setDefaultSectionSize(_ROW_HEIGHT)`, 36px — bequem für das größte fixe
+Icon, das 18px hohe Zustands-Badge, plus die schon bestehenden 8px
+Zell-Innenabstände aus der QSS). Live gegen die echte, 20 Karten
+umfassende `data/collection.db` verifiziert: `table.rowHeight(r)` liefert
+für alle 20 Zeilen exakt `36`, unabhängig vom jeweiligen Set-Icon
+(darunter auch die Zeile, deren Set-Icon-Download zuvor mit 404
+fehlgeschlagen war). `test_card_panel.py` (24 Tests) weiterhin grün,
+`compileall` sauber.
+
+Davor: Fertigstellung/Release-Vorbereitung für den ersten
 Alpha-Release (Nutzerwunsch, alle 5 Punkte einer entsprechenden Nachfrage
 bestätigt: committen, README aktualisieren, Version 0.9.0-alpha.1, eine
 echte .exe bauen, Changelog/Testlauf/Tag). Wichtiger Fund dabei: der letzte

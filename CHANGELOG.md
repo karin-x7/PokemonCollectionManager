@@ -6,6 +6,16 @@ Versionierung nach [SemVer](https://semver.org).
 
 ## [Unreleased]
 
+### Behoben — Uneinheitliche Zeilenhöhen in der Kartentabelle
+- Live-reportiert: die Zeilen in der Kartentabelle waren unterschiedlich
+  hoch. Ursache: `resizeRowsToContents()` bemaß jede Zeile nach ihrem
+  jeweils größten Zellinhalt — Set-Icons kommen aber je nach Quelle
+  (pokemontcg.io/tcgdex-Fallback) in unterschiedlicher Auflösung, was pro
+  Zeile eine andere Höhe ergab.
+- Feste, einheitliche Zeilenhöhe (36px) statt automatischer Bemessung —
+  live geprüft: alle 20 Zeilen einer echten Sammlung jetzt exakt gleich
+  hoch, unabhängig vom jeweiligen Set-Icon.
+
 ## [0.9.0-alpha.1] — 2026-07-06
 
 Erster Alpha-Release: der komplette Funktionsumfang aus den Schritten 2-11

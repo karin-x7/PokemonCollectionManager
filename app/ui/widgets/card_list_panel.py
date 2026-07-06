@@ -83,6 +83,10 @@ _NUMERIC_COLUMNS = {_QUANTITY_COLUMN, _PRICE_COLUMN}
 #: the existing case-insensitive alphabetical sort still has something to
 #: compare) once its flag icon replaces it visually.
 _TRANSPARENT = QColor(0, 0, 0, 0)
+#: Fixed row height (see _build()) -- comfortably fits the tallest fixed-
+#: size icon (the 18px condition badge) plus the QSS's own 8px top/bottom
+#: item padding, regardless of the actual set icon's own resolution.
+_ROW_HEIGHT = 36
 
 
 class _CaseInsensitiveItem(QTableWidgetItem):
@@ -198,6 +202,16 @@ class CardListPanel(QWidget):
         self._table = QTableWidget(0, len(columns))
         self._table.setHorizontalHeaderLabels(columns)
         self._table.verticalHeader().setVisible(False)
+        # Fixed, uniform row height instead of resizeRowsToContents() (user-
+        # reported: rows all came out different heights) -- set icons are
+        # downloaded from pokemontcg.io/tcgdex at whatever resolution the
+        # source happened to serve, so per-row auto-sizing picked a
+        # different height depending on which set icon (if any) landed in
+        # that row. A single fixed height sidesteps that entirely, matching
+        # every icon column's own actual render size (tallest: the
+        # condition badge at 18px, see condition_icon_provider.py).
+        self._table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        self._table.verticalHeader().setDefaultSectionSize(_ROW_HEIGHT)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -287,7 +301,6 @@ class CardListPanel(QWidget):
         if self._sort_column is not None:
             self._table.sortItems(self._sort_column, self._sort_order)
         self._table.blockSignals(False)
-        self._table.resizeRowsToContents()
 
         self._restore_selection(previous_id)
 
