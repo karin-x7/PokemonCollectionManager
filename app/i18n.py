@@ -117,6 +117,14 @@ _EN: dict[str, str] = {
     "Löschen": "Delete",
     "Verschieben": "Move",
     "Preis manuell bearbeiten": "Edit price manually",
+    "Cardmarket-Link öffnen": "Open Cardmarket link",
+    "Keine Cardmarket-Zuordnung für diese Karte bekannt -- Link kann nicht geöffnet werden.": (
+        "No Cardmarket link known for this card -- nothing to open."
+    ),
+    "Cardmarket-Seite geöffnet.": "Cardmarket page opened.",
+    "Ein anderer Cardmarket-Vorgang läuft gerade -- bitte kurz warten.": (
+        "Another Cardmarket operation is already running -- please wait a moment."
+    ),
     "Preis:": "Price:",
     "Der Preis muss größer als 0 sein.": "The price must be greater than 0.",
     "Zielsammlung:": "Target collection:",
@@ -280,6 +288,47 @@ _EN: dict[str, str] = {
     "Sealed-Produkt eintragen": "Add sealed product",
     # card_artwork_view.py
     "Kein Foto": "No photo",
+    # price_service.py
+    "Exakter Treffer: {language}, {condition}.": "Exact match: {language}, {condition}.",
+    "Geschätzt aus {language}, Zustand {found_condition} statt {expected_condition}.": (
+        "Estimated from {language}, condition {found_condition} instead of "
+        "{expected_condition}."
+    ),
+    "Geschätzt aus {found_language} statt {expected_language}, gleicher Zustand ({condition}).": (
+        "Estimated from {found_language} instead of {expected_language}, "
+        "same condition ({condition})."
+    ),
+    "Durchschnitt über alle gefundenen Angebote, unabhängig von Zustand und Sprache.": (
+        "Average over all offers found, regardless of condition and language."
+    ),
+    (
+        "Automatische Preisermittlung für {language} wird nicht unterstützt "
+        "(Cardmarket führt diesen Druck als eigenständiges Produkt). Trage "
+        "unter „Eigener Cardmarket-Link“ den korrekten Link ein, um die "
+        "Preisermittlung für diese Karte zu aktivieren."
+    ): (
+        "Automatic price lookup for {language} is not supported (Cardmarket "
+        "lists this print as a separate product). Enter the correct link "
+        'under "Custom Cardmarket link" to enable price lookups for this card.'
+    ),
+    (
+        "{set_name} führt mehrere Druckvarianten (z. B. Normal/Shadowless) "
+        "als getrennte Cardmarket-Produkte, die pokemontcg.io nicht "
+        "auseinanderhält. Trage unter „Eigener Cardmarket-Link“ den "
+        "korrekten Link für die Version ein, die du besitzt."
+    ): (
+        "{set_name} lists multiple print variants (e.g. Normal/Shadowless) "
+        "as separate Cardmarket products that pokemontcg.io can't tell "
+        'apart. Enter the correct link for the version you own under '
+        '"Custom Cardmarket link".'
+    ),
+    "Keine Cardmarket-Zuordnung für diese Karte bekannt.": (
+        "No Cardmarket link known for this card."
+    ),
+    "Mögliche Bezeichnung auf Cardmarket (via tcgdex.dev): „{card_name}“, Set „{set_name}“, Nr. {local_id}.": (
+        'Possible Cardmarket designation (via tcgdex.dev): "{card_name}", '
+        'set "{set_name}", no. {local_id}.'
+    ),
     # sealed_price_service.py
     "Keine Cardmarket-Zuordnung für dieses Produkt bekannt.": (
         "No Cardmarket link known for this product."

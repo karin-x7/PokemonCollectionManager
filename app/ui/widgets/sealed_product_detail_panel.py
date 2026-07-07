@@ -112,8 +112,16 @@ class SealedProductDetailPanel(QWidget):
         self._value_labels["Sprache"].setText(product.language.label)
         self._value_labels["Menge"].setText(str(product.quantity))
         self._value_labels["Preis"].setText(price)
-        self._value_labels["Preisqualität"].setText(tr(product.price_quality.label))
-        self._value_labels["Preisqualität"].setToolTip(product.price_rationale or "")
+        # Shown inline, not just as a hover tooltip -- see card_detail_panel.py's
+        # matching change for why (a generic quality label alone doesn't say
+        # *which* language an estimate was actually taken from).
+        quality_label = tr(product.price_quality.label)
+        rationale = product.price_rationale or ""
+        self._value_labels["Preisqualität"].setText(
+            f"{quality_label} — {rationale}" if rationale and rationale != quality_label
+            else quality_label
+        )
+        self._value_labels["Preisqualität"].setToolTip(rationale)
         self._value_labels["Letzte Aktualisierung"].setText(
             format_display_datetime(product.price_updated_at) if product.price_updated_at else "—"
         )

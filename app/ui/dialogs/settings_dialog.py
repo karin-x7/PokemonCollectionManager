@@ -67,6 +67,14 @@ the one you actually own.</p>
 <p>If a seller mislabeled their listing on Cardmarket, right-click a card
 and choose <b>"Edit price manually"</b> to set the price yourself.</p>
 
+<h3>Browsing a card's Cardmarket page yourself</h3>
+<p>"Update price" opens Cardmarket in the background, reads the price, and
+closes the tab automatically — it never stays open for you to look at. To
+browse the listing yourself (check seller comments, photos, other offers,
+...), right-click a card and choose <b>"Open Cardmarket link"</b> instead:
+this opens the same page in a normal, full-sized Chrome window and leaves
+it open.</p>
+
 <h2>Sealed products</h2>
 
 <h3>Adding a sealed product</h3>

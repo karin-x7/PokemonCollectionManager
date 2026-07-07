@@ -441,7 +441,7 @@ def test_unmapped_language_without_manual_url_bails_with_clear_message(
     assert updated.current_price is None
     assert updated.price_quality is PriceQuality.NO_PRICE
     assert "Japanese" in updated.price_rationale
-    assert "Cardmarket-Link" in updated.price_rationale
+    assert "Cardmarket link" in updated.price_rationale
     assert reader.calls == []
 
 
@@ -655,7 +655,7 @@ def test_base_set_card_without_a_link_gets_a_specific_ambiguous_variant_message(
 
     assert updated.price_quality is PriceQuality.NO_PRICE
     assert offer_reader.calls == []
-    assert "Eigener Cardmarket-Link" in updated.price_rationale
+    assert "Custom Cardmarket link" in updated.price_rationale
     assert "Shadowless" in updated.price_rationale
 
 
@@ -681,7 +681,7 @@ def test_base_set_card_with_an_unresolved_shortlink_is_still_treated_as_ambiguou
 
     assert updated.price_quality is PriceQuality.NO_PRICE
     assert offer_reader.calls == []
-    assert "Eigener Cardmarket-Link" in updated.price_rationale
+    assert "Custom Cardmarket link" in updated.price_rationale
 
 
 def test_base_set_card_with_an_already_resolved_link_is_used_directly(

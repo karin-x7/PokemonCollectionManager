@@ -6,6 +6,33 @@ Versionierung nach [SemVer](https://semver.org).
 
 ## [Unreleased]
 
+### Behoben — Chrome öffnete sich im Vollbild statt klein
+- `--window-size` beim Chrome-Start wird stillschweigend ignoriert, wenn
+  Chrome bereits (auch nur unsichtbar) im Hintergrund läuft (Windows'
+  "Hintergrund-Apps weiterlaufen lassen", oft Standard) -- der Aufruf wird
+  dann per IPC an den laufenden Prozess weitergereicht, der ein neues
+  Fenster in Standardgröße (meist maximiert) öffnet. Fenster wird jetzt nach
+  dem Öffnen zusätzlich immer aktiv verkleinert/positioniert
+  (`restore()`+`move_window()`), unabhängig davon, ob der Chrome-Flag
+  gegriffen hat.
+
+### Neu — "Estimated from"-Info jetzt direkt sichtbar
+- Bei einem geschätzten Preis (anderes Zustand/Sprache als gewünscht) stand
+  bisher nur die generische Preisqualität ("Estimated from a different
+  condition") sichtbar da, die konkrete Begründung (welche Sprache/welcher
+  Zustand tatsächlich verwendet wurde) nur als Tooltip beim Hovern. Steht
+  jetzt direkt im Kartendetail, Sealed-Detail und Preisverlauf.
+- Dabei nebenbei behoben: die Begründungstexte in `price_service.py` waren
+  noch hartcodiert Deutsch, obwohl die UI seit Schritt 15 komplett
+  Englisch ist -- jetzt wie überall sonst über `tr()` übersetzt.
+
+### Neu — "Cardmarket-Link öffnen" (Rechtsklick auf eine Karte)
+- Rechtsklick auf eine Karte → "Open Cardmarket link" öffnet die Cardmarket-
+  Seite in einem normalen, vollgroßen Chrome-Fenster und lässt es offen --
+  im Gegensatz zu "Preis aktualisieren", das die Seite automatisch liest und
+  den Tab wieder schließt. Gedacht dafür, sich Angebote/Fotos/Kommentare in
+  Ruhe selbst anzuschauen.
+
 ## [0.10.0-alpha.2] — 2026-07-07
 
 ### Neu — Abgedunkelte App mit Ladebalken während des Preis-Abrufs

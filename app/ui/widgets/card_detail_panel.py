@@ -192,12 +192,21 @@ class CardDetailPanel(QWidget):
         self._value_labels["Zustand"].setText(card.condition.label)
         self._value_labels["Menge"].setText(str(card.quantity))
         self._value_labels["Preis"].setText(price)
-        self._value_labels["Preisqualität"].setText(tr(card.price_quality.label))
-        # The rationale explains *why* (e.g. "no price found" for a Base Set
-        # card with ambiguous Cardmarket variants) -- otherwise recorded but
-        # never surfaced anywhere in the UI, wasting the very message meant
-        # to help the user fix it.
-        self._value_labels["Preisqualität"].setToolTip(card.price_rationale or "")
+        # The rationale explains *why* (e.g. which language/condition an
+        # estimate was actually taken from, or "no price found" for a Base
+        # Set card with ambiguous Cardmarket variants) -- shown inline, not
+        # just as a hover tooltip, since a user reported the generic quality
+        # label alone ("Estimated from a different condition") didn't say
+        # *which* condition it used. Skipped when it's just a restatement of
+        # the label itself (e.g. MANUAL's rationale is literally "Manually
+        # set"), to avoid showing the same phrase twice.
+        quality_label = tr(card.price_quality.label)
+        rationale = card.price_rationale or ""
+        self._value_labels["Preisqualität"].setText(
+            f"{quality_label} — {rationale}" if rationale and rationale != quality_label
+            else quality_label
+        )
+        self._value_labels["Preisqualität"].setToolTip(rationale)
         self._value_labels["Letzte Aktualisierung"].setText(
             format_display_datetime(card.price_updated_at) if card.price_updated_at else "—"
         )

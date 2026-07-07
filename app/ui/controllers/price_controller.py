@@ -31,6 +31,8 @@ from app.models.card import Card
 from app.ui.controllers.card_controller import CardController
 from app.ui.controllers.statistics_controller import StatisticsController
 from app.ui.widgets.card_detail_panel import CardDetailPanel
+from app.ui.widgets.card_list_panel import CardListPanel
+from app.ui.workers.open_cardmarket_link_worker import OpenCardmarketLinkWorker
 from app.ui.workers.price_lookup_worker import OpenPriceService, PriceLookupWorker
 
 logger = get_logger(__name__)
@@ -46,6 +48,7 @@ class PriceController(QObject):
         open_service: OpenPriceService,
         card_controller: CardController,
         statistics_controller: StatisticsController | None = None,
+        list_panel: CardListPanel | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent or main_window)
@@ -57,14 +60,17 @@ class PriceController(QObject):
         self._worker: PriceLookupWorker | None = None
         self._bulk_queue: list[int] = []
         self._bulk_total = 0
+        self._link_worker: OpenCardmarketLinkWorker | None = None
 
         panel.price_lookup_requested.connect(self.start_lookup)
+        if list_panel is not None:
+            list_panel.open_cardmarket_link_requested.connect(self.open_cardmarket_link)
 
     def start_lookup(self, card_id: int) -> None:
         logger.info("Price lookup requested for card id=%s", card_id)
-        if self._worker is not None:
-            logger.info("Price lookup already running -- ignoring click.")
-            return  # a lookup is already running
+        if self._worker is not None or self._link_worker is not None:
+            logger.info("A Cardmarket browser operation is already running -- ignoring click.")
+            return  # a lookup or an "open link" is already running
         self._start(card_id, tr("Preis wird von Cardmarket abgerufen…"))
 
     def start_bulk_update(self, card_ids: list[int]) -> None:
@@ -75,8 +81,8 @@ class PriceController(QObject):
         up front instead of before every item.
         """
         logger.info("Bulk price update requested for %d card(s)", len(card_ids))
-        if self._worker is not None or not card_ids:
-            logger.info("A lookup is already running -- ignoring bulk request.")
+        if self._worker is not None or self._link_worker is not None or not card_ids:
+            logger.info("A Cardmarket browser operation is already running -- ignoring bulk request.")
             return
         self._bulk_queue = list(card_ids)
         self._bulk_total = len(self._bulk_queue)
@@ -147,3 +153,45 @@ class PriceController(QObject):
         self._worker = None
         if self._bulk_total:
             self._run_next_in_queue()
+
+    def open_cardmarket_link(self, card_id: int) -> None:
+        """Open the card's Cardmarket page in Chrome, left open for the user
+        to browse -- the "Cardmarket-Link öffnen" context-menu action.
+
+        Distinct from ``start_lookup``: shares the same single-slot guard
+        against a concurrent price lookup (both open a Chrome tab tied to
+        this card, and the automated lookup's own window-matching could
+        otherwise mistake this manually-opened tab for its own), but has no
+        busy overlay of its own -- this finishes almost instantly (open and
+        forget), unlike a lookup's several-second read-and-close cycle.
+        """
+        logger.info("Open Cardmarket link requested for card id=%s", card_id)
+        if self._worker is not None or self._link_worker is not None:
+            logger.info("A Cardmarket browser operation is already running -- ignoring click.")
+            self._main_window.statusBar().showMessage(
+                tr("Ein anderer Cardmarket-Vorgang läuft gerade -- bitte kurz warten."), 4000
+            )
+            return
+        self._link_worker = OpenCardmarketLinkWorker(self._open_service, card_id, parent=self)
+        self._link_worker.succeeded.connect(self._on_link_opened)
+        self._link_worker.failed.connect(self._on_link_failed)
+        self._link_worker.finished.connect(self._on_link_cleanup)
+        self._link_worker.start()
+
+    def _on_link_opened(self, url: object) -> None:
+        if url is None:
+            self._main_window.statusBar().showMessage(
+                tr(
+                    "Keine Cardmarket-Zuordnung für diese Karte bekannt -- Link kann "
+                    "nicht geöffnet werden."
+                ),
+                5000,
+            )
+        else:
+            self._main_window.statusBar().showMessage(tr("Cardmarket-Seite geöffnet."), 4000)
+
+    def _on_link_failed(self, message: str) -> None:
+        self._main_window.statusBar().showMessage(message, 5000)
+
+    def _on_link_cleanup(self) -> None:
+        self._link_worker = None

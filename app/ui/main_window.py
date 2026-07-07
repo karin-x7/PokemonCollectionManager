@@ -445,6 +445,7 @@ class MainWindow(QMainWindow):
             open_price_service,
             self.card_controller,
             statistics_controller=self.statistics_controller,
+            list_panel=self.card_list_panel,
             parent=self,
         )
         self.statistics_panel.price_lookup_requested.connect(self.price_controller.start_lookup)

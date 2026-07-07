@@ -36,6 +36,7 @@ from app.catalog.tcgdex_designation_lookup import (
 )
 from app.database.repositories.card_repository import CardRepository
 from app.database.repositories.price_repository import PriceRepository
+from app.i18n import tr
 from app.logging_config import get_logger
 from app.models.card import Card
 from app.models.enums import Language, PriceQuality
@@ -90,7 +91,9 @@ def _exact_or_nearest_condition(
         return (
             cheapest.price,
             PriceQuality.EXACT,
-            f"Exakter Treffer: {card.language.label}, {card.condition.label}.",
+            tr("Exakter Treffer: {language}, {condition}.").format(
+                language=card.language.label, condition=card.condition.label
+            ),
         )
 
     with_condition = [o for o in offers if o.condition is not None]
@@ -101,8 +104,11 @@ def _exact_or_nearest_condition(
         return (
             nearest.price,
             PriceQuality.ESTIMATED_FROM_CONDITION,
-            f"Geschätzt aus {card.language.label}, Zustand {nearest.condition.label} "
-            f"statt {card.condition.label}.",
+            tr("Geschätzt aus {language}, Zustand {found_condition} statt {expected_condition}.").format(
+                language=card.language.label,
+                found_condition=nearest.condition.label,
+                expected_condition=card.condition.label,
+            ),
         )
     return None
 
@@ -114,25 +120,31 @@ def _same_condition_other_language(card: Card, offers: list[CardmarketOffer]) ->
         return None
     cheapest = min(same_condition, key=lambda o: o.price)
     language_label = (
-        cheapest.language.label if cheapest.language is not None else "unbekannter Sprache"
+        cheapest.language.label if cheapest.language is not None else tr("unbekannter Sprache")
     )
     return (
         cheapest.price,
         PriceQuality.ESTIMATED_FROM_LANGUAGE,
-        f"Geschätzt aus {language_label} statt {card.language.label}, "
-        f"gleicher Zustand ({card.condition.label}).",
+        tr(
+            "Geschätzt aus {found_language} statt {expected_language}, "
+            "gleicher Zustand ({condition})."
+        ).format(
+            found_language=language_label,
+            expected_language=card.language.label,
+            condition=card.condition.label,
+        ),
     )
 
 
 def _average(offers: list[CardmarketOffer]) -> _PriceResult:
     """AVERAGE: mean price over every offer found, ignoring condition/language."""
     if not offers:
-        return None, PriceQuality.NO_PRICE, "Keine Angebote auf Cardmarket gefunden."
+        return None, PriceQuality.NO_PRICE, tr("Keine Angebote auf Cardmarket gefunden.")
     average = sum(o.price for o in offers) / len(offers)
     return (
         round(average, 2),
         PriceQuality.AVERAGE,
-        "Durchschnitt über alle gefundenen Angebote, unabhängig von Zustand und Sprache.",
+        tr("Durchschnitt über alle gefundenen Angebote, unabhängig von Zustand und Sprache."),
     )
 
 
@@ -188,11 +200,13 @@ class PriceService:
                 card,
                 None,
                 PriceQuality.NO_PRICE,
-                f"Automatische Preisermittlung für {card.language.label} wird "
-                "nicht unterstützt (Cardmarket führt diesen Druck als "
-                "eigenständiges Produkt). Trage unter „Eigener Cardmarket-"
-                "Link“ den korrekten Link ein, um die Preisermittlung für "
-                "diese Karte zu aktivieren."
+                tr(
+                    "Automatische Preisermittlung für {language} wird nicht "
+                    "unterstützt (Cardmarket führt diesen Druck als "
+                    "eigenständiges Produkt). Trage unter „Eigener "
+                    "Cardmarket-Link“ den korrekten Link ein, um die "
+                    "Preisermittlung für diese Karte zu aktivieren."
+                ).format(language=card.language.label)
                 + self._designation_hint(card),
             )
         else:
@@ -226,11 +240,13 @@ class PriceService:
                     card,
                     None,
                     PriceQuality.NO_PRICE,
-                    f"{card.set_name} führt mehrere Druckvarianten (z. B. Normal/"
-                    "Shadowless) als getrennte Cardmarket-Produkte, die "
-                    "pokemontcg.io nicht auseinanderhält. Trage unter „Eigener "
-                    "Cardmarket-Link“ den korrekten Link für die Version ein, "
-                    "die du besitzt.",
+                    tr(
+                        "{set_name} führt mehrere Druckvarianten (z. B. "
+                        "Normal/Shadowless) als getrennte Cardmarket-Produkte, "
+                        "die pokemontcg.io nicht auseinanderhält. Trage unter "
+                        "„Eigener Cardmarket-Link“ den korrekten Link für die "
+                        "Version ein, die du besitzt."
+                    ).format(set_name=card.set_name),
                 )
             else:
                 cardmarket_url = self._backfill_cardmarket_url(card)
@@ -239,7 +255,7 @@ class PriceService:
                         card,
                         None,
                         PriceQuality.NO_PRICE,
-                        "Keine Cardmarket-Zuordnung für diese Karte bekannt.",
+                        tr("Keine Cardmarket-Zuordnung für diese Karte bekannt."),
                     )
 
             # cardmarket_url (from pokemontcg.io) is a tracking shortlink whose
@@ -253,6 +269,43 @@ class PriceService:
 
         price, quality, rationale = self.determine_price(card, real_url)
         return self._record(card, price, quality, rationale)
+
+    def resolve_display_url(self, card_id: int) -> str | None:
+        """The best Cardmarket URL to show a human for ``card_id``, if any is known.
+
+        Backs the "Open Cardmarket link" context-menu action, which just
+        opens the page for the user to look at themselves -- deliberately
+        much simpler than ``update_price_for_card``'s own URL resolution:
+        the safety checks there (bailing out for an ambiguous Base
+        Set-style variant, or a Japanese/Korean/Chinese print with no
+        filter) exist to stop an *automated* lookup from silently
+        mispricing a card against the wrong product. None of that risk
+        applies to a human looking at a possibly-imprecise page and
+        judging for themselves, so this always returns whatever link is
+        known, filtered by language/condition where Cardmarket supports it.
+
+        Raises:
+            CardNotFoundError: If the card does not exist.
+        """
+        card = self._cards.get(card_id)
+        if card is None:
+            raise CardNotFoundError(card_id)
+
+        if card.manual_cardmarket_url:
+            real_url = card.manual_cardmarket_url
+        else:
+            cardmarket_url = card.cardmarket_url or self._backfill_cardmarket_url(card)
+            if cardmarket_url is None:
+                return None
+            real_url = self._resolve_url(cardmarket_url)
+            if real_url != cardmarket_url:
+                self._cards.update_cardmarket_url(card.id, real_url)
+
+        if supports_language_filter(card.language):
+            real_url = build_filtered_url(
+                real_url, language=card.language, min_condition=card.condition
+            )
+        return real_url
 
     def determine_price(self, card: Card, base_url: str) -> tuple[float | None, PriceQuality, str]:
         """Walk the matching ladder, one Cardmarket-filtered page per step.
@@ -422,10 +475,13 @@ class PriceService:
             return ""
         if designation is None:
             return ""
-        return (
-            f" Mögliche Bezeichnung auf Cardmarket (via tcgdex.dev): "
-            f"„{designation.card_name}“, Set „{designation.set_name}“, "
-            f"Nr. {designation.local_id}."
+        return " " + tr(
+            "Mögliche Bezeichnung auf Cardmarket (via tcgdex.dev): "
+            "„{card_name}“, Set „{set_name}“, Nr. {local_id}."
+        ).format(
+            card_name=designation.card_name,
+            set_name=designation.set_name,
+            local_id=designation.local_id,
         )
 
     def _backfill_cardmarket_url(self, card: Card) -> str | None:

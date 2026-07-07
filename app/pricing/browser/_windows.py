@@ -110,13 +110,15 @@ def _find_chrome_executable() -> str | None:
 #: "chrome" or "cardmarket" in a window title.
 _CHROME_WINDOW_CLASS = "Chrome_WidgetWin_1"
 
-#: Smallest window Chrome is launched at when it isn't already running --
-#: only takes effect on that cold start (an already-running Chrome ignores
-#: --window-size for a new tab opened in its existing window). Narrow
-#: enough to stay unobtrusive behind the app (user request), but not so
-#: narrow that Cardmarket's own responsive layout collapses into a
-#: simplified view that might drop the offer table this reads.
-_COLD_START_WINDOW_SIZE = "700,850"
+#: Smallest usable window size for Chrome while it reads a Cardmarket page --
+#: narrow enough to stay unobtrusive behind the app (user request), but not
+#: so narrow that Cardmarket's own responsive layout collapses into a
+#: simplified view that might drop the offer table this reads. Used both as
+#: the ``--window-size`` cold-start launch flag (see ``_open_in_chrome``) and
+#: as the explicit resize target in ``_ensure_small_window`` below.
+_SMALL_WINDOW_WIDTH = 700
+_SMALL_WINDOW_HEIGHT = 850
+_COLD_START_WINDOW_SIZE = f"{_SMALL_WINDOW_WIDTH},{_SMALL_WINDOW_HEIGHT}"
 
 
 def _chrome_window_titles() -> dict[int, str]:
@@ -208,6 +210,42 @@ def _dismiss_cookie_banner(window) -> None:
         pass
 
 
+#: Where the resized window is placed -- arbitrary but fixed, so it lands in
+#: a consistent spot (top-left-ish) rather than wherever Chrome happened to
+#: put it, which after ``restore()`` can vary (e.g. its last non-maximized
+#: position from a previous session).
+_SMALL_WINDOW_POSITION = (60, 60)
+
+
+def _ensure_small_window(window) -> None:
+    """Best-effort: force ``window`` to a small, unobtrusive size regardless
+    of how it was opened.
+
+    ``--window-size`` (see ``_open_in_chrome``) only actually takes effect
+    when Chrome's browser process itself is freshly started -- live-reported
+    regression: Chrome commonly keeps running in the background with no
+    visible window at all (Windows' "continue running background apps"
+    setting, on by default for many installs), so ``_open_in_chrome``'s own
+    ``cold_start`` check (no visible window to snapshot) mistakes this for a
+    genuine cold start and still passes the flag, but the launch is actually
+    just forwarded via IPC to that already-running process, which opens a
+    new window at its own default size (typically maximized) -- the flag is
+    silently ignored in that path. Explicitly resizing the window here,
+    unconditionally, is the only way to reliably get a small window
+    regardless of which of the two ever actually happened.
+    """
+    try:
+        window.restore()
+        window.move_window(
+            x=_SMALL_WINDOW_POSITION[0],
+            y=_SMALL_WINDOW_POSITION[1],
+            width=_SMALL_WINDOW_WIDTH,
+            height=_SMALL_WINDOW_HEIGHT,
+        )
+    except Exception:  # noqa: BLE001 — cosmetic only, never blocks the read
+        logger.warning("Could not resize the Cardmarket Chrome window.")
+
+
 def _open_and_capture_visible_text(
     url: str,
     match_hint: str,
@@ -289,6 +327,8 @@ def _open_and_capture_visible_text(
                 hint=match_hint
             )
         )
+
+    _ensure_small_window(window)
 
     try:
         time.sleep(_SETTLE_DELAY)

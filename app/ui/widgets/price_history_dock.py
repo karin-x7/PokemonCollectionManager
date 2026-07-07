@@ -225,10 +225,19 @@ class PriceHistoryDock(QDockWidget):
             # made them look too tight together (user feedback).
             when = timestamp.toString("dd.MM.yy   HH:mm")
             price_text = f"{record.price:.2f} {record.currency}"
-            # Two lines instead of one long "·"-joined line: the single-line
-            # form regularly overflowed the dock's width, forcing a
-            # horizontal scrollbar just to read one entry.
-            item = QListWidgetItem(f"{when}  ·  {price_text}\n{tr(record.price_quality.label)}")
+            # Two/three lines instead of one long "·"-joined line: the
+            # single-line form regularly overflowed the dock's width,
+            # forcing a horizontal scrollbar just to read one entry. The
+            # rationale (e.g. "estimated from German, condition Played
+            # instead of Near Mint") is appended when it says more than the
+            # quality label alone already does (skipped for e.g. MANUAL,
+            # whose rationale is just "Manually set" again).
+            quality_label = tr(record.price_quality.label)
+            rationale = record.rationale or ""
+            text = f"{when}  ·  {price_text}\n{quality_label}"
+            if rationale and rationale != quality_label:
+                text += f"\n{rationale}"
+            item = QListWidgetItem(text)
             self._history_list.addItem(item)
 
     def _on_reset_clicked(self) -> None:

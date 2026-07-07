@@ -178,6 +178,12 @@ class CardListPanel(QWidget):
     #: "Bearbeiten"), since overriding several cards' prices to the same
     #: value at once wouldn't make sense.
     price_edit_requested = Signal(int, float)
+    #: Emitted with a card id when "Open Cardmarket link" is chosen from the
+    #: context menu -- only offered for a single selected row, same reasoning
+    #: as "Bearbeiten"/"Preis manuell bearbeiten". Distinct from the "Preis
+    #: von Cardmarket abrufen" button, which reads and closes the tab
+    #: automatically: this leaves the tab open for the user to browse.
+    open_cardmarket_link_requested = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -500,6 +506,9 @@ class CardListPanel(QWidget):
         price_edit_action = (
             menu.addAction(tr("Preis manuell bearbeiten")) if len(ids) == 1 else None
         )
+        open_link_action = (
+            menu.addAction(tr("Cardmarket-Link öffnen")) if len(ids) == 1 else None
+        )
         move_action = menu.addAction(tr("Verschieben"))
         delete_action = menu.addAction(tr("Löschen"))
         chosen = menu.exec(self._table.viewport().mapToGlobal(position))
@@ -507,6 +516,8 @@ class CardListPanel(QWidget):
             self._prompt_edit(row)
         elif price_edit_action is not None and chosen is price_edit_action:
             self._prompt_edit_price(row)
+        elif open_link_action is not None and chosen is open_link_action:
+            self.open_cardmarket_link_requested.emit(ids[0])
         elif chosen is move_action:
             self.move_requested.emit(ids)
         elif chosen is delete_action:
