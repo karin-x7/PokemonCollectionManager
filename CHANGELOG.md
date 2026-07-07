@@ -6,6 +6,8 @@ Versionierung nach [SemVer](https://semver.org).
 
 ## [Unreleased]
 
+## [0.10.0-alpha.2] — 2026-07-07
+
 ### Neu — Abgedunkelte App mit Ladebalken während des Preis-Abrufs
 - Während ein Cardmarket-Preis geholt wird (Karten, Sealed-Produkte,
   Wantlist, einzeln oder als Sammelaktualisierung), wird das ganze

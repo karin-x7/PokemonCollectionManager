@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 APP_NAME: str = "Pokémon Collection Manager"
-APP_VERSION: str = "0.10.0-alpha.1"
+APP_VERSION: str = "0.10.0-alpha.2"
 
 if getattr(sys, "frozen", False):
     # Running as a PyInstaller-built .exe: __file__ would resolve inside the
