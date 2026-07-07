@@ -6,6 +6,8 @@ Versionierung nach [SemVer](https://semver.org).
 
 ## [Unreleased]
 
+## [0.10.0-alpha.1] — 2026-07-07
+
 ### Neu — Wantlist-Eintrag in eine Sammlung übernehmen
 - Rechtsklick auf einen Wantlist-Eintrag → "Add to collection": fragt nach
   der Zielsammlung und legt die Karte dort als normal besessene Karte an

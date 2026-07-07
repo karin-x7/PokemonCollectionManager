@@ -3,7 +3,17 @@
 > Synchronisationsdatei zwischen mehreren PCs. Enthält jederzeit den aktuellen
 > Entwicklungsstand. Wird nach **jedem** Entwicklungsschritt aktualisiert.
 
-**Letzter Schritt:** Kleiner, vom Nutzer nach dem v0.9.0-alpha.1-Release
+**Letzter Schritt:** Release v0.10.0-alpha.1: seit dem letzten Release
+angesammelte Arbeit (Update-Hinweis, Backup-Wiederherstellung, Gesamtwert-
+Verlauf, Wantlist mit Preisalarm, CSV/Excel/JSON-Import, Duplikat-Warnung,
+Wantlist→Sammlung-Übernahme) in einem Commit auf GitHub gebracht, Version
+in `app/config.py`/`pyproject.toml` auf `0.10.0-alpha.1` gesetzt,
+CHANGELOG.md-Unreleased-Abschnitt zu `[0.10.0-alpha.1]` geschnitten, neue
+`.exe` gebaut und als GitHub-Release veröffentlicht (Snapshot-Feature war
+zwischenzeitlich testweise gebaut und auf Nutzerwunsch wieder komplett
+entfernt -- daher kein Niederschlag im Diff).
+
+**Vorheriger Schritt:** Kleiner, vom Nutzer nach dem v0.9.0-alpha.1-Release
 gemeldeter Bug: Zeilen in der Kartentabelle waren unterschiedlich hoch.
 Ursache gefunden: `CardListPanel.set_cards()` rief bisher
 `self._table.resizeRowsToContents()` auf, was jede Zeile nach ihrem
