@@ -18,6 +18,7 @@ from app.models.wantlist import WantlistItem
 from app.services.exceptions import WantlistItemNotFoundError
 from app.ui.app import build_application
 from app.ui.controllers.wantlist_price_controller import WantlistPriceController
+from app.ui.widgets.busy_overlay import BusyOverlay
 from app.ui.widgets.wantlist_panel import WantlistPanel
 from app.ui.workers.wantlist_price_lookup_worker import WantlistPriceLookupWorker
 
@@ -65,6 +66,7 @@ def synchronous_worker(monkeypatch):
 def main_window(qapp) -> QMainWindow:
     window = QMainWindow()
     window.setStatusBar(QStatusBar())
+    window.busy_overlay = BusyOverlay(window)
     yield window
     window.close()
 

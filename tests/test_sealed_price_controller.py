@@ -18,6 +18,7 @@ from app.models.sealed_product import SealedProduct
 from app.services.exceptions import SealedProductNotFoundError
 from app.ui.app import build_application
 from app.ui.controllers.sealed_price_controller import SealedPriceController
+from app.ui.widgets.busy_overlay import BusyOverlay
 from app.ui.widgets.sealed_product_detail_panel import SealedProductDetailPanel
 from app.ui.workers.sealed_price_lookup_worker import SealedPriceLookupWorker
 
@@ -78,6 +79,7 @@ def synchronous_worker(monkeypatch):
 def main_window(qapp) -> QMainWindow:
     window = QMainWindow()
     window.setStatusBar(QStatusBar())
+    window.busy_overlay = BusyOverlay(window)
     yield window
     window.close()
 

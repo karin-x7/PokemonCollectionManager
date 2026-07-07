@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 from app.i18n import tr
 from app.models.card import Card
 from app.ui.set_icon_provider import get_set_icon
+from app.ui.theme import apply_elevation
 from app.ui.widgets.card_artwork_view import CardArtworkView
 from app.utils.time import format_display_datetime
 
@@ -81,6 +82,7 @@ class CardDetailPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("Panel")
+        apply_elevation(self)
         self._value_labels: dict[str, QLabel] = {}
         self._current_card_id: int | None = None
         self._build()
@@ -115,6 +117,7 @@ class CardDetailPanel(QWidget):
                 self._set_icon_label.setScaledContents(True)
                 self._set_icon_label.hide()
                 row = QWidget()
+                row.setObjectName("TransparentGroup")
                 row_layout = QHBoxLayout(row)
                 row_layout.setContentsMargins(0, 0, 0, 0)
                 row_layout.setSpacing(6)

@@ -516,37 +516,71 @@ def _find_chrome_executable() -> str | None:
     return None
 
 
-#: ``ASFW_ANY`` — passed to Windows' ``AllowSetForegroundWindow`` to let
-#: *whichever* process next calls ``SetForegroundWindow`` succeed, rather
-#: than naming one specific process id.
-_ASFW_ANY = -1
+#: Chrome's own top-level window class -- used to enumerate its windows
+#: without pulling in any other browser/app that happens to mention
+#: "chrome" or "cardmarket" in a window title.
+_CHROME_WINDOW_CLASS = "Chrome_WidgetWin_1"
+
+#: Smallest window Chrome is launched at when it isn't already running --
+#: only takes effect on that cold start (an already-running Chrome ignores
+#: --window-size for a new tab opened in its existing window). Narrow
+#: enough to stay unobtrusive behind the app (user request), but not so
+#: narrow that Cardmarket's own responsive layout collapses into a
+#: simplified view that might drop the offer table this reads.
+_COLD_START_WINDOW_SIZE = "700,850"
 
 
-def _allow_chrome_to_take_focus() -> None:
-    """Lift Windows' foreground-lock restriction before launching Chrome.
+def _chrome_window_titles() -> dict[int, str]:
+    """Maps every visible top-level Chrome window handle to its current title.
 
-    A live bug report found the correct Cardmarket tab opening and rendering
-    fine, but the window-matching poll below timing out anyway with "Tab
-    nicht rechtzeitig gefunden" -- ``GetForegroundWindow()`` never actually
-    switched to it. Root cause: this call happens on a background
-    ``QThread``, and Windows normally refuses to let an already-running,
-    non-foreground process (or a reused existing Chrome window it wakes up)
-    steal focus outside of a direct user-input event. ``AllowSetForeground
-    Window(ASFW_ANY)`` grants the next ``SetForegroundWindow`` call --
-    Chrome's own, when it activates its window for the new tab -- permission
-    to succeed regardless of that restriction. Best-effort: silently skipped
-    if unavailable (e.g. not running on Windows).
+    Used to detect *which* window just opened the tab this call is waiting
+    for, without needing that window to be in the foreground (see
+    ``_open_and_capture_visible_text``).
     """
-    try:
-        import ctypes
+    import win32gui
 
-        ctypes.windll.user32.AllowSetForegroundWindow(_ASFW_ANY)
-    except (AttributeError, OSError):
+    titles: dict[int, str] = {}
+
+    def _collect(hwnd: int, _: object) -> None:
+        try:
+            if (
+                win32gui.GetClassName(hwnd) == _CHROME_WINDOW_CLASS
+                and win32gui.IsWindowVisible(hwnd)
+            ):
+                titles[hwnd] = win32gui.GetWindowText(hwnd)
+        except Exception:  # noqa: BLE001 — a window can vanish mid-enumeration
+            pass
+
+    win32gui.EnumWindows(_collect, None)
+    return titles
+
+
+def _restore_foreground(hwnd: int | None) -> None:
+    """Best-effort: brings ``hwnd`` (this app's own window) back to the
+    foreground.
+
+    Chrome briefly needs the actual OS foreground for two things this
+    module still does: a cold start creating its window, and focusing the
+    opened tab to send it the "close tab" shortcut. Both cases hand focus
+    back to the app right after, instead of leaving Chrome's window on top
+    (user request: the app should stay in front, Chrome opens behind it).
+    """
+    if hwnd is None:
+        return
+    try:
+        import win32gui
+
+        win32gui.SetForegroundWindow(hwnd)
+    except Exception:  # noqa: BLE001 — never let a focus nicety break a lookup
         pass
 
 
-def _open_in_chrome(url: str) -> None:
+def _open_in_chrome(url: str, cold_start: bool) -> None:
     """Launch ``url`` in Google Chrome specifically, in a new tab.
+
+    ``cold_start`` (Chrome wasn't already running) additionally requests
+    the smallest usable window size -- ignored by Chrome for a tab opened
+    in an already-running instance, which is the common case.
 
     Raises:
         BrowserPriceReaderError: If Chrome isn't installed where expected.
@@ -559,8 +593,11 @@ def _open_in_chrome(url: str) -> None:
                 r"(erwarteter Pfad: ...\Google\Chrome\Application\chrome.exe)."
             )
         )
-    _allow_chrome_to_take_focus()
-    subprocess.Popen([chrome_path, url])  # noqa: S603 — fixed executable, one URL argument
+    args = [chrome_path]
+    if cold_start:
+        args.append(f"--window-size={_COLD_START_WINDOW_SIZE}")
+    args.append(url)
+    subprocess.Popen(args)  # noqa: S603 — fixed executable, fixed/one URL argument
 
 
 #: Cardmarket's own cookie-consent banner text, in every locale this project
@@ -620,30 +657,31 @@ def _open_and_capture_visible_text(
     caught and logged, never allowed to break the actual text read this
     function exists for.
 
-    Matching is scoped to whatever window is currently in the *foreground*
-    (``GetForegroundWindow``) **and** whose title mentions both Chrome and
-    Cardmarket, polled repeatedly until both match — not "any open window
-    with a matching title". ``match_hint`` (the card's name) is used only
-    for the error message if no matching window ever appears, *not* for the
-    matching itself: a real card ("Charizard VMAX" filtered by German)
-    showed a live "Cardmarket-Tab nicht gefunden" failure because Cardmarket
-    renders the page in the requested language, including the card's
-    *localised* name in the title ("Glurak VMAX | Cardmarket") — nothing
-    close to the English catalogue name this project stores. "Cardmarket"
-    itself is the one thing present in the title regardless of locale. A
-    live smoke test earlier also caught the broader ``Desktop(...).windows()``
-    scan matching a stale, already-open tab with a coincidentally similar
-    title (e.g. a leftover Cardmarket tab from an earlier lookup, or even
-    this project's own
-    debugging browser session) instead of the tab this call just opened,
-    silently returning a real but wrong price. Since opening a URL normally
-    focuses the new tab, the foreground window at match time should be
-    exactly it; requiring a known browser in the title is a second,
-    cheap safety net against matching some unrelated foreground app.
+    Chrome is deliberately kept out of the foreground throughout (user
+    request: the app should stay the visible/active window, Chrome loads
+    behind it) -- so matching can no longer rely on ``GetForegroundWindow``
+    the way an earlier version of this function did. Instead, every
+    visible Chrome window's title is snapshotted *before* opening the URL;
+    afterwards, each currently open Chrome window is checked against that
+    snapshot, and the match is whichever one now mentions "Cardmarket" in
+    its title but didn't already (either a brand-new window -- Chrome
+    wasn't running yet -- or an existing window whose active tab just
+    changed to this one). That "changed since the snapshot" condition is
+    exactly what a plain, undated title search lacks: a live smoke test
+    once caught a broad "any window mentioning Cardmarket" search matching
+    a stale, already-open tab from an earlier lookup instead of the tab
+    this call just opened, silently returning a real but wrong price.
+    ``match_hint`` (the card's name) is used only for the error message if
+    no matching window ever appears, *not* for the matching itself: a real
+    card ("Charizard VMAX" filtered by German) showed a live "Cardmarket-Tab
+    nicht gefunden" failure because Cardmarket renders the page in the
+    requested language, including the card's *localised* name in the title
+    ("Glurak VMAX | Cardmarket") -- nothing close to the English catalogue
+    name this project stores.
 
     Raises:
         BrowserPriceReaderError: If Chrome isn't installed, or no matching
-            foreground window appears within ``timeout``.
+            window appears within ``timeout``.
     """
     # Imported lazily: pywinauto/pywin32 are Windows-only, and importing them
     # directly at module load would break this module (and anything
@@ -651,29 +689,31 @@ def _open_and_capture_visible_text(
     import win32gui
     from pywinauto import Desktop
 
-    _open_in_chrome(url)
+    own_hwnd = win32gui.GetForegroundWindow()
+    titles_before = _chrome_window_titles()
+    _open_in_chrome(url, cold_start=not titles_before)
 
     desktop = Desktop(backend="uia")
     deadline = time.monotonic() + timeout
     window = None
     while time.monotonic() < deadline:
-        hwnd = win32gui.GetForegroundWindow()
-        if hwnd:
+        for hwnd, title in _chrome_window_titles().items():
+            if "cardmarket" not in title.casefold():
+                continue
+            if titles_before.get(hwnd) == title:
+                continue  # unchanged since the snapshot -- a stale tab, not ours
             try:
-                title = win32gui.GetWindowText(hwnd)
+                candidate = desktop.window(handle=hwnd)
+                candidate.window_text()  # sanity check it's wrappable
             except Exception:  # noqa: BLE001 — window may have closed mid-poll
-                title = ""
-            lowered_title = title.casefold()
-            if "cardmarket" in lowered_title and "chrome" in lowered_title:
-                try:
-                    candidate = desktop.window(handle=hwnd)
-                    candidate.window_text()  # sanity check it's wrappable
-                except Exception:  # noqa: BLE001 — window may have closed mid-poll
-                    pass
-                else:
-                    window = candidate
-                    break
+                continue
+            window = candidate
+            break
+        if window is not None:
+            break
         time.sleep(_POLL_INTERVAL)
+
+    _restore_foreground(own_hwnd)
 
     if window is None:
         raise BrowserPriceReaderError(
@@ -720,6 +760,12 @@ def _open_and_capture_visible_text(
             window.type_keys("^w")
         except Exception:  # noqa: BLE001 — best-effort tab cleanup
             logger.warning("Could not close the Cardmarket tab for %r automatically.", match_hint)
+        finally:
+            # window.set_focus() just above necessarily brought Chrome
+            # forward again (needed for the "^w" keystroke to land on it) --
+            # hand focus back to the app now that Chrome is done being
+            # interacted with.
+            _restore_foreground(own_hwnd)
 
 
 def _read_visible_text(window) -> list[str]:

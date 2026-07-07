@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
 from app.models.wantlist import WantlistItem, WantlistItemDetailsValues
 from app.ui.dialogs.wantlist_item_details_dialog import WantlistItemDetailsDialog
 from app.ui.language_icon_provider import get_language_icon
-from app.ui.theme import PALETTE
+from app.ui.theme import PALETTE, apply_elevation
 from app.ui.widgets.centered_icon_delegate import CenteredIconDelegate
 
 _COLUMNS = ["Name", "Set", "Lang.", "Target", "Current", "Status"]
@@ -99,6 +99,7 @@ class WantlistPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("Panel")
+        apply_elevation(self)
         self._items_by_id: dict[int, WantlistItem] = {}
         self._build()
 
@@ -130,6 +131,7 @@ class WantlistPanel(QWidget):
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(False)
         self._table.setSortingEnabled(True)
+        self._table.setShowGrid(False)
 
         header_view = self._table.horizontalHeader()
         header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)

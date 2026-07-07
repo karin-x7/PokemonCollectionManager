@@ -6,6 +6,93 @@ Versionierung nach [SemVer](https://semver.org).
 
 ## [Unreleased]
 
+### Neu — Abgedunkelte App mit Ladebalken während des Preis-Abrufs
+- Während ein Cardmarket-Preis geholt wird (Karten, Sealed-Produkte,
+  Wantlist, einzeln oder als Sammelaktualisierung), wird das ganze
+  Fenster spürbar abgedunkelt und zeigt einen kleinen, mittig
+  eingeblendeten Ladebalken samt Statustext -- macht deutlich sichtbar,
+  dass gerade etwas läuft, statt sich allein auf die kleine
+  Statusleisten-Meldung zu verlassen (Nutzerwunsch).
+- Dabei denselben Subklassen-Stolperstein wie beim Panel-Schatten erneut
+  gefunden: das Abdunkeln (`rgba(...)`-Hintergrund) rendert bei einer
+  QWidget-Subklasse nur mit explizitem `WA_StyledBackground` -- ohne das
+  blieb es unsichtbar, obwohl Ladetext und -balken schon korrekt
+  erschienen. Per echtem (nicht PrintWindow-basiertem) Screenshot
+  pixelgenau nachgewiesen und behoben.
+- Statustext und Ladebalken stecken in einer gemeinsamen, abgerundeten
+  Box (gleicher Panel-Look wie der Rest der App) statt lose auf dem
+  abgedunkelten Hintergrund zu schweben.
+
+### Geändert — Chrome bleibt beim Preis-Abruf im Hintergrund
+- Beim Abrufen eines Cardmarket-Preises (Karten, Sealed-Produkte, Wantlist)
+  bleibt die App jetzt durchgehend im Vordergrund -- Chrome öffnet sich
+  dahinter, statt kurz nach vorne zu springen. Live per Fokus-Log über den
+  gesamten Ablauf (Chrome-Start, Seite lesen, Tab schließen) bestätigt.
+- Ist Chrome noch nicht offen, startet es in einem deutlich kleineren
+  Fenster (700×850) statt in voller Größe -- betrifft nur diesen Kaltstart-
+  Fall, da ein bereits laufendes Chrome die Fenstergröße für einen neuen
+  Tab im bestehenden Fenster ignoriert.
+- Die Fenstererkennung verglich bisher, welches Fenster gerade im
+  *Vordergrund* stand -- das ist mit der neuen Hintergrund-Öffnung nicht
+  mehr möglich. Ersetzt durch einen Titel-Vorher/Nachher-Vergleich über
+  alle offenen Chrome-Fenster: erkannt wird, welches Fenster jetzt
+  "Cardmarket" im Titel zeigt, aber vorher noch nicht -- damit werden
+  weiterhin zuverlässig nur neu geöffnete/aktivierte Tabs erkannt, keine
+  bereits offenen, unveränderten Cardmarket-Tabs aus einem früheren Abruf.
+
+### Behoben — Checkbox zeigte weiterhin einen dunklen Kasten
+- Die QCheckBox selbst (nicht nur ihr Eltern-Container) zeichnete einen
+  eigenen, opaken Fensterhintergrund -- betraf nach dem ersten Fix immer
+  noch "Alle Sammlungen". Jetzt global transparent gestellt.
+
+### Neu — Preisdiagramme: Tooltip mit Datum/Preis beim Hovern
+- Karten-Preisverlauf, Sealed-Preisverlauf und der kombinierte
+  Gesamtwert-Verlauf im Statistik-Tab zeigen jetzt beim Überfahren eines
+  Punktes ein Tooltip mit exaktem Datum und Wert -- vorher musste der Wert
+  an der Y-Achse abgelesen/geschätzt werden (Nutzerwunsch).
+
+### Behoben — UI-Feinkorrekturen nach Live-Review
+- Schlagschatten der Panels verkleinert (Blur/Versatz reduziert): bei
+  ~10px Abstand zwischen benachbarten Panels lief der vorherige, größere
+  Schatten über den Spalt hinaus und wurde vom Nachbar-Panel hart
+  abgeschnitten -- sichtbar als hässlicher Fleck in der Ecke.
+- Ein unauffälliger `QWidget`-Wrapper (z. B. die Set-Icon-Zeile im
+  Kartendetail, die "Alle Sammlungen"-Checkbox-Zeile) erbte die
+  app-weite Fensterhintergrundfarbe und wirkte dadurch wie ein
+  deplatzierter dunkler Kasten auf dem helleren Panel-Hintergrund.
+  Betroffene Wrapper bekommen jetzt einen transparenten Hintergrund.
+- ComboBox-Dropdown-Pfeil neu gestaltet: der native Pfeil samt eigenem
+  Kasten wirkte unpassend neben dem restlichen, abgerundeten Design --
+  jetzt ein schlichtes, selbst gezeichnetes Chevron ohne Rahmen.
+- Eingabefelder/Comboboxen etwas dunkler als der Panel-Hintergrund
+  (neue `input_bg`-Palettenfarbe) für einen "eingelassenen" statt
+  gleichfarbigen Look.
+
+### Geändert — UI-Feinschliff für einen hochwertigeren Eindruck (Farbschema unverändert)
+- Alle Panels (Sammlungen, Karten-/Sealed-/Wantlist-Listen, Detailpanels,
+  Statistik-Kacheln) bekommen jetzt einen weichen Schlagschatten (Elevation)
+  -- vorher rein flach mit 1px-Rand, jetzt sichtbar vom Fensterhintergrund
+  abgehoben. Dabei ein echter Qt-Stolperstein gefunden und behoben: eine
+  QWidget-*Subklasse* (wie hier überall verwendet) rendert `border-radius`
+  aus dem Stylesheet nur mit explizit gesetztem `WA_StyledBackground` --
+  ohne das blieb der Rahmen unsichtbar eckig, obwohl Hintergrund-/Randfarbe
+  schon korrekt kamen. Live mit einem minimalen Repro nachgewiesen (einzige
+  Variable: Subklasse vs. reines `QWidget()`) und zentral in
+  `theme.apply_elevation()`/`enable_rounded_background()` gefixt.
+- Eckenradius vereinheitlicht (Panels/Kacheln 14px, Listen/Tabellen 10px,
+  Buttons/Eingabefelder 8px) statt vorher uneinheitlicher 4–14px-Mischung.
+- Tabellen zeigen keine Excel-artigen Gitterlinien mehr, nur noch eine
+  dezente Trennlinie pro Zeile -- ruhiger, "listenartiger" statt
+  tabellenartig wirkend.
+- Buttons: dezenter Verlauf (statt reiner Flatcolor) + Press-Zustand
+  (Button "sackt" beim Klicken minimal ab) für ein taktileres Gefühl;
+  Eingabefelder/Comboboxen/Checkboxen bekommen einen sichtbaren Hover-Rand.
+  Splitter-Griffe zeigen beim Hovern eine dezente Linie (Resize-Hinweis,
+  vorher komplett unsichtbar).
+- Wantlist-Tab bekam denselben 10px-Seitenrand wie Karten/Sealed, damit
+  sein Panel (Ecken + Schatten) nicht mehr direkt an den Reiterrand
+  anstößt.
+
 ## [0.10.0-alpha.1] — 2026-07-07
 
 ### Neu — Wantlist-Eintrag in eine Sammlung übernehmen

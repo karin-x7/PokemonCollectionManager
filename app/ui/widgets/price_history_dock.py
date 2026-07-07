@@ -11,8 +11,8 @@ whenever the selected card changes.
 from __future__ import annotations
 
 from PySide6.QtCharts import QChart, QChartView, QDateTimeAxis, QLineSeries, QValueAxis
-from PySide6.QtCore import QDateTime, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtCore import QDateTime, QPointF, Qt, Signal
+from PySide6.QtGui import QColor, QCursor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QDockWidget,
     QLabel,
@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -155,6 +156,7 @@ class PriceHistoryDock(QDockWidget):
         for record in records:
             timestamp = QDateTime.fromString(record.recorded_at, Qt.DateFormat.ISODate)
             series.append(timestamp.toMSecsSinceEpoch(), record.price)
+        series.hovered.connect(self._on_point_hovered)
         self._chart.addSeries(series)
 
         axis_x = QDateTimeAxis()
@@ -183,6 +185,18 @@ class PriceHistoryDock(QDockWidget):
         series.attachAxis(axis_y)
 
         self._chart_view.show()
+
+    @staticmethod
+    def _on_point_hovered(point: QPointF, state: bool) -> None:
+        """Shows the exact date/price at the nearest data point on hover --
+
+        added since reading a value off the y-axis alone is imprecise
+        (user request)."""
+        if not state:
+            QToolTip.hideText()
+            return
+        when = QDateTime.fromMSecsSinceEpoch(int(point.x())).toString("dd.MM.yyyy")
+        QToolTip.showText(QCursor.pos(), f"{when}\n{point.y():.2f} EUR")
 
     def _render_percent_change(self, records: list[PriceRecord]) -> None:
         previous, latest = records[-2].price, records[-1].price

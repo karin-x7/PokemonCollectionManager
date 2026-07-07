@@ -14,7 +14,6 @@ import requests
 
 from app.models.enums import Condition, Language
 from app.pricing.browser_price_reader import (
-    _allow_chrome_to_take_focus,
     _find_breadcrumb_set_name,
     _has_cookie_banner,
     _parse_offer_lines,
@@ -748,24 +747,6 @@ def test_handles_a_version_suffix_with_no_trailing_dash() -> None:
     assert result == (
         "https://cardmarket.com/en/Pokemon/Products/Singles/Evolving-Skies/Umbreon-VMAX-V2?utm_source=pokemontcgio"
     )
-
-
-def test_allow_chrome_to_take_focus_calls_the_windows_api(monkeypatch) -> None:
-    fake_user32 = MagicMock()
-    fake_windll = MagicMock(user32=fake_user32)
-    monkeypatch.setattr("ctypes.windll", fake_windll, raising=False)
-
-    _allow_chrome_to_take_focus()
-
-    fake_user32.AllowSetForegroundWindow.assert_called_once_with(-1)
-
-
-def test_allow_chrome_to_take_focus_is_a_noop_off_windows(monkeypatch) -> None:
-    import ctypes
-
-    monkeypatch.delattr(ctypes, "windll", raising=False)
-
-    _allow_chrome_to_take_focus()  # must not raise
 
 
 def _fake_descendant(text: str, visible: bool = True, raises: bool = False):

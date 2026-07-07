@@ -80,6 +80,7 @@ class WantlistPriceController(QObject):
     def _start(self, item_id: int, status_message: str) -> None:
         try:
             self._main_window.statusBar().showMessage(status_message)
+            self._main_window.busy_overlay.show_busy(status_message)
             self._worker = WantlistPriceLookupWorker(self._open_service, item_id, parent=self)
             self._worker.succeeded.connect(self._on_succeeded)
             self._worker.failed.connect(self._on_failed)
@@ -88,6 +89,7 @@ class WantlistPriceController(QObject):
         except Exception:  # noqa: BLE001 — surface it in the log; pythonw has no console
             logger.exception("Failed to start wantlist price lookup for item id=%s", item_id)
             self._panel.set_bulk_check_running(False)
+            self._main_window.busy_overlay.hide_busy()
             self._worker = None
             self._bulk_queue = []
             self._bulk_total = 0
@@ -108,6 +110,7 @@ class WantlistPriceController(QObject):
             self._main_window.statusBar().showMessage(message, 5000)
 
     def _cleanup(self) -> None:
+        self._main_window.busy_overlay.hide_busy()
         self._worker = None
         if self._bulk_total:
             self._run_next_in_queue()

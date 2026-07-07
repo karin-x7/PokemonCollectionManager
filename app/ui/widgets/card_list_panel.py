@@ -42,6 +42,7 @@ from app.ui.condition_icon_provider import get_condition_icon
 from app.ui.dialogs.card_details_dialog import CardDetailsDialog
 from app.ui.dialogs.manual_price_dialog import ManualPriceDialog
 from app.ui.language_icon_provider import get_language_icon
+from app.ui.theme import apply_elevation
 from app.ui.set_icon_provider import get_set_icon
 from app.ui.theme import PALETTE
 from app.ui.widgets.card_filter_bar import CardFilterBar
@@ -181,6 +182,7 @@ class CardListPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("Panel")
+        apply_elevation(self)
         self._cards_by_id: dict[int, Card] = {}
         self._sort_column: int | None = None
         self._sort_order = Qt.SortOrder.AscendingOrder
@@ -216,6 +218,10 @@ class CardListPanel(QWidget):
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(False)
+        # Native cell-grid replaced by a single, subtler per-row bottom
+        # border in theme.py (QTableWidget::item) -- no vertical lines, a
+        # cleaner "list" look instead of a spreadsheet-style full grid.
+        self._table.setShowGrid(False)
 
         header_view = self._table.horizontalHeader()
         header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)

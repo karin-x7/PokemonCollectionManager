@@ -44,6 +44,13 @@ class CardFilterBar(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        # A plain, unstyled QWidget otherwise inherits the app-wide QWidget
+        # background-color rule (theme.py), showing up as a dark rectangle
+        # around the "Alle Sammlungen" checkbox -- the only child here
+        # without its own opaque background (inputs/combos/buttons all
+        # paint their own) -- wherever this bar sits on a lighter Panel
+        # background (live-reported).
+        self.setObjectName("TransparentGroup")
         self._build()
 
     def _build(self) -> None:

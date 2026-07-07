@@ -37,7 +37,7 @@ from app.models.sealed_product import SealedProduct, SealedProductDetailsValues
 from app.services.statistics_service import is_price_stale
 from app.ui.dialogs.sealed_product_details_dialog import SealedProductDetailsDialog
 from app.ui.language_icon_provider import get_language_icon
-from app.ui.theme import PALETTE
+from app.ui.theme import PALETTE, apply_elevation
 from app.ui.widgets.centered_icon_delegate import CenteredIconDelegate
 
 
@@ -121,6 +121,7 @@ class SealedProductListPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("Panel")
+        apply_elevation(self)
         self._products_by_id: dict[int, SealedProduct] = {}
         self._build()
 
@@ -142,6 +143,7 @@ class SealedProductListPanel(QWidget):
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(False)
         self._table.setSortingEnabled(True)
+        self._table.setShowGrid(False)
 
         header_view = self._table.horizontalHeader()
         header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)

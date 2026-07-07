@@ -96,6 +96,7 @@ class SealedPriceController(QObject):
             if self._detail_panel is not None:
                 self._detail_panel.set_price_lookup_running(True)
             self._main_window.statusBar().showMessage(status_message)
+            self._main_window.busy_overlay.show_busy(status_message)
             self._worker = SealedPriceLookupWorker(self._open_service, product_id, parent=self)
             self._worker.succeeded.connect(self._on_succeeded)
             self._worker.failed.connect(self._on_failed)
@@ -105,6 +106,7 @@ class SealedPriceController(QObject):
             logger.exception("Failed to start sealed price lookup for product id=%s", product_id)
             if self._detail_panel is not None:
                 self._detail_panel.set_price_lookup_running(False)
+            self._main_window.busy_overlay.hide_busy()
             self._worker = None
             self._bulk_queue = []
             self._bulk_total = 0
@@ -135,6 +137,7 @@ class SealedPriceController(QObject):
     def _cleanup(self) -> None:
         if self._detail_panel is not None:
             self._detail_panel.set_price_lookup_running(False)
+        self._main_window.busy_overlay.hide_busy()
         self._worker = None
         if self._bulk_total:
             self._run_next_in_queue()

@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from app.i18n import tr
 from app.models.collection import Collection
+from app.ui.theme import apply_elevation
 
 _ID_ROLE = Qt.ItemDataRole.UserRole
 
@@ -48,6 +49,7 @@ class CollectionPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("Panel")
+        apply_elevation(self)
         self._build()
 
     def _build(self) -> None:

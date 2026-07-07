@@ -106,6 +106,7 @@ class PriceController(QObject):
         try:
             self._panel.set_price_lookup_running(True)
             self._main_window.statusBar().showMessage(status_message)
+            self._main_window.busy_overlay.show_busy(status_message)
             self._worker = PriceLookupWorker(self._open_service, card_id, parent=self)
             self._worker.succeeded.connect(self._on_succeeded)
             self._worker.failed.connect(self._on_failed)
@@ -114,6 +115,7 @@ class PriceController(QObject):
         except Exception:  # noqa: BLE001 — surface it in the log; pythonw has no console
             logger.exception("Failed to start price lookup for card id=%s", card_id)
             self._panel.set_price_lookup_running(False)
+            self._main_window.busy_overlay.hide_busy()
             self._worker = None
             self._bulk_queue = []
             self._bulk_total = 0
@@ -141,6 +143,7 @@ class PriceController(QObject):
 
     def _cleanup(self) -> None:
         self._panel.set_price_lookup_running(False)
+        self._main_window.busy_overlay.hide_busy()
         self._worker = None
         if self._bulk_total:
             self._run_next_in_queue()

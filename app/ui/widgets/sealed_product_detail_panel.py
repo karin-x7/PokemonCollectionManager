@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QFormLayout, QLabel, QPushButton, QVBoxLayout, QWi
 
 from app.i18n import tr
 from app.models.sealed_product import SealedProduct
+from app.ui.theme import apply_elevation
 from app.ui.widgets.sealed_artwork_view import SealedArtworkView
 from app.utils.time import format_display_datetime
 
@@ -41,6 +42,7 @@ class SealedProductDetailPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("Panel")
+        apply_elevation(self)
         self._value_labels: dict[str, QLabel] = {}
         self._current_product_id: int | None = None
         self._build()

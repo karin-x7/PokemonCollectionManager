@@ -17,8 +17,8 @@ from __future__ import annotations
 from functools import partial
 
 from PySide6.QtCharts import QChart, QChartView, QDateTimeAxis, QLineSeries, QValueAxis
-from PySide6.QtCore import QDateTime, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtCore import QDateTime, QPointF, Qt, Signal
+from PySide6.QtGui import QColor, QCursor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QTableWidget,
     QTableWidgetItem,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -41,7 +42,7 @@ from app.services.statistics_service import (
     ValueOverTimePoint,
 )
 from app.ui.set_icon_provider import get_set_icon
-from app.ui.theme import PALETTE
+from app.ui.theme import PALETTE, apply_elevation
 from app.utils.time import format_display_datetime
 
 #: Wide enough for the "Preis aktualisieren" button's bold, padded label to
@@ -178,6 +179,7 @@ class StatisticsPanel(QWidget):
     def _make_stat_card(title: str) -> tuple[QWidget, QLabel, QLabel]:
         card = QWidget()
         card.setObjectName("StatCard")
+        apply_elevation(card)
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(14, 12, 14, 12)
         card_layout.setSpacing(4)
@@ -336,6 +338,7 @@ class StatisticsPanel(QWidget):
         bulk button, keeping it visually attached to the section it acts on.
         """
         row = QWidget()
+        row.setObjectName("TransparentGroup")
         row_layout = QHBoxLayout(row)
         row_layout.setContentsMargins(0, 0, 0, 0)
         row_layout.addWidget(StatisticsPanel._section_label(text))
@@ -359,6 +362,7 @@ class StatisticsPanel(QWidget):
         # column (see the manual-sort comment in __init__) -- those wire up
         # their own header-click handling instead.
         table.setSortingEnabled(sortable)
+        table.setShowGrid(False)
         header_view = table.horizontalHeader()
         for col in range(len(columns)):
             mode = (
@@ -440,6 +444,7 @@ class StatisticsPanel(QWidget):
         for point in points:
             timestamp = QDateTime.fromString(point.recorded_at, Qt.DateFormat.ISODate)
             series.append(timestamp.toMSecsSinceEpoch(), point.total_value)
+        series.hovered.connect(self._on_value_point_hovered)
         self._value_chart.addSeries(series)
 
         axis_x = QDateTimeAxis()
@@ -463,6 +468,16 @@ class StatisticsPanel(QWidget):
         series.attachAxis(axis_y)
 
         self._value_chart_view.show()
+
+    @staticmethod
+    def _on_value_point_hovered(point: QPointF, state: bool) -> None:
+        """Mirrors ``PriceHistoryDock``'s own hover tooltip, for the combined
+        value-over-time chart."""
+        if not state:
+            QToolTip.hideText()
+            return
+        when = QDateTime.fromMSecsSinceEpoch(int(point.x())).toString("dd.MM.yyyy")
+        QToolTip.showText(QCursor.pos(), f"{when}\n{point.y():.2f} EUR")
 
     def _on_stale_header_clicked(self, column: int) -> None:
         if column == 3:  # Aktion -- a button, nothing to sort by

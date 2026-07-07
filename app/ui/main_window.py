@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QToolBar,
     QToolButton,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -72,6 +73,7 @@ from app.ui.controllers.wantlist_entry_controller import WantlistEntryController
 from app.ui.controllers.wantlist_price_controller import WantlistPriceController
 from app.ui.theme import build_stylesheet
 from app.ui.widgets import CardDetailPanel, CardListPanel, CollectionPanel
+from app.ui.widgets.busy_overlay import BusyOverlay
 from app.ui.widgets.price_history_dock import PriceHistoryDock
 from app.ui.widgets.sealed_price_history_dock import SealedPriceHistoryDock
 from app.ui.widgets.sealed_product_detail_panel import SealedProductDetailPanel
@@ -136,6 +138,11 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1300, 750)
 
         self._build_toolbar()
+        # Created before the controllers that use it (PriceController and
+        # friends just store a reference to `self` and look this attribute
+        # up when a lookup actually starts, but existing unambiguously this
+        # early avoids any doubt about ordering).
+        self.busy_overlay = BusyOverlay(self)
         self._build_central()
         self._build_statusbar()
         self._connect_signals()
@@ -586,10 +593,19 @@ class MainWindow(QMainWindow):
         sealed_splitter.setContentsMargins(10, 10, 10, 10)
         sealed_splitter.setHandleWidth(10)
 
+        # Gives the Wantlist panel the same breathing room as the Karten/
+        # Sealed splitters above -- added directly (no splitter of its own,
+        # since there's nothing to resize against), it would otherwise sit
+        # flush against the tab's edges, clipping its rounded corners/shadow.
+        wantlist_page = QWidget()
+        wantlist_page_layout = QVBoxLayout(wantlist_page)
+        wantlist_page_layout.setContentsMargins(10, 10, 10, 10)
+        wantlist_page_layout.addWidget(self.wantlist_panel)
+
         tabs = QTabWidget()
         tabs.addTab(splitter, tr("Karten"))
         tabs.addTab(sealed_splitter, tr("Sealed"))
-        tabs.addTab(self.wantlist_panel, "Wantlist")
+        tabs.addTab(wantlist_page, "Wantlist")
         tabs.addTab(self.statistics_panel, tr("Statistiken"))
         # Navigated exclusively via the toolbar buttons above (_act_tab_cards/
         # _act_tab_stats) -- the tab bar itself would just be a redundant
