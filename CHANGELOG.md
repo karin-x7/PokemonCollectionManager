@@ -6,15 +6,31 @@ Versionierung nach [SemVer](https://semver.org).
 
 ## [Unreleased]
 
-### Behoben — Chrome öffnete sich im Vollbild statt klein
-- `--window-size` beim Chrome-Start wird stillschweigend ignoriert, wenn
-  Chrome bereits (auch nur unsichtbar) im Hintergrund läuft (Windows'
-  "Hintergrund-Apps weiterlaufen lassen", oft Standard) -- der Aufruf wird
-  dann per IPC an den laufenden Prozess weitergereicht, der ein neues
-  Fenster in Standardgröße (meist maximiert) öffnet. Fenster wird jetzt nach
-  dem Öffnen zusätzlich immer aktiv verkleinert/positioniert
-  (`restore()`+`move_window()`), unabhängig davon, ob der Chrome-Flag
-  gegriffen hat.
+### Geändert — Chrome-Fenster: mehrere Anläufe bis zur finalen Lösung
+- Ursprüngliches Problem: `--window-size` beim Chrome-Start wird
+  stillschweigend ignoriert, wenn Chrome bereits (auch nur unsichtbar) im
+  Hintergrund läuft (Windows' "Hintergrund-Apps weiterlaufen lassen", oft
+  Standard) -- der Aufruf wird dann per IPC an den laufenden Prozess
+  weitergereicht, der ein neues Fenster in Standardgröße (meist maximiert)
+  öffnet.
+- Erster Versuch (kleines 700x850-Fenster per pywinauto's `window.restore()`
+  erzwungen): hat einen echten Folgefehler verursacht -- `restore()` ruft
+  intern `ShowWindow(hwnd, SW_RESTORE)` auf, was laut Win32-Doku das Fenster
+  *immer* aktiviert, auch wenn es gar nicht maximiert war. Chrome sprang
+  wieder in den Vordergrund UND die automatische Preiserkennung brach
+  dadurch komplett ab.
+- Zweiter Versuch (1280x720 statt 700x850, per rohem `win32gui`/`win32con`
+  ohne `ShowWindow`): immer noch zu klein zum bequemen Lesen, und die App
+  blieb weiterhin nicht zuverlässig im Vordergrund.
+- Finale Lösung: Chrome wird jetzt komplett maximiert (voller Bildschirm,
+  aber hinter der App) statt auf eine feste Größe verkleinert -- per
+  `SetWindowPlacement` (setzt Maximiert-Zustand direkt, ohne jeden
+  `ShowWindow`-Aufruf, der sonst den Fokus stehlen würde).
+- Zusätzlich behoben: `SetForegroundWindow` wird von Windows generell
+  stillschweigend *ignoriert*, wenn der aufrufende Prozess gerade nicht
+  selbst im Vordergrund ist (Anti-Fokus-Klau-Schutz) -- das hat verhindert,
+  dass die App sich den Vordergrund von Chrome zurückholen konnte. Jetzt per
+  `AttachThreadInput`-Workaround gelöst (Standard-Win32-Technik dafür).
 
 ### Neu — "Estimated from"-Info jetzt direkt sichtbar
 - Bei einem geschätzten Preis (anderes Zustand/Sprache als gewünscht) stand
@@ -25,6 +41,10 @@ Versionierung nach [SemVer](https://semver.org).
 - Dabei nebenbei behoben: die Begründungstexte in `price_service.py` waren
   noch hartcodiert Deutsch, obwohl die UI seit Schritt 15 komplett
   Englisch ist -- jetzt wie überall sonst über `tr()` übersetzt.
+- Bei einem exakten Treffer stand die Preisqualität doppelt da ("Exact
+  match — Exact match: English, Near Mint.", live-reported) -- die
+  Begründung wiederholte den Namen der Preisqualität selbst. Jetzt ohne
+  das redundante Präfix, nur noch die konkreten Details.
 
 ### Neu — "Cardmarket-Link öffnen" (Rechtsklick auf eine Karte)
 - Rechtsklick auf eine Karte → "Open Cardmarket link" öffnet die Cardmarket-

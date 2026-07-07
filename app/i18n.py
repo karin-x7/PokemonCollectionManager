@@ -289,7 +289,6 @@ _EN: dict[str, str] = {
     # card_artwork_view.py
     "Kein Foto": "No photo",
     # price_service.py
-    "Exakter Treffer: {language}, {condition}.": "Exact match: {language}, {condition}.",
     "Geschätzt aus {language}, Zustand {found_condition} statt {expected_condition}.": (
         "Estimated from {language}, condition {found_condition} instead of "
         "{expected_condition}."
@@ -333,7 +332,6 @@ _EN: dict[str, str] = {
     "Keine Cardmarket-Zuordnung für dieses Produkt bekannt.": (
         "No Cardmarket link known for this product."
     ),
-    "Exakter Treffer: {language}.": "Exact match: {language}.",
     "unbekannter Sprache": "unknown language",
     "Geschätzt aus {found}, gewünscht war {expected}.": (
         "Estimated from {found}, {expected} was wanted."

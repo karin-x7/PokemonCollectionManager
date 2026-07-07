@@ -91,9 +91,13 @@ def _exact_or_nearest_condition(
         return (
             cheapest.price,
             PriceQuality.EXACT,
-            tr("Exakter Treffer: {language}, {condition}.").format(
-                language=card.language.label, condition=card.condition.label
-            ),
+            # No "Exact match:" prefix here -- PriceQuality.EXACT's own
+            # label already says that; a live-reported UI change started
+            # showing the label and this rationale together, which
+            # duplicated the phrase ("Exact match — Exact match: English,
+            # Near Mint."). Just the specific language/condition it
+            # matched against.
+            f"{card.language.label}, {card.condition.label}.",
         )
 
     with_condition = [o for o in offers if o.condition is not None]

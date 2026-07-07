@@ -118,7 +118,10 @@ class SealedPriceService:
             return (
                 same_language.price,
                 PriceQuality.EXACT,
-                tr("Exakter Treffer: {language}.").format(language=product.language.label),
+                # No "Exact match:" prefix -- PriceQuality.EXACT's own label
+                # already says that; see price_service.py's matching fix for
+                # the live-reported UI duplication this avoids.
+                f"{product.language.label}.",
             )
 
         if not supports_language_filter(product.language):
