@@ -55,3 +55,11 @@ class SealedProductNotFoundError(ServiceError):
         super().__init__(
             tr("Sealed-Produkt mit ID {id} wurde nicht gefunden.").format(id=product_id)
         )
+
+
+class WantlistItemNotFoundError(ServiceError):
+    """Raised when a wantlist item id does not exist."""
+
+    def __init__(self, item_id: int) -> None:
+        self.item_id = item_id
+        super().__init__(f"Wantlist item with id {item_id} was not found.")

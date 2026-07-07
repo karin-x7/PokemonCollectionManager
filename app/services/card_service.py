@@ -94,6 +94,35 @@ class CardService:
         """Return the distinct set names in scope, for populating a filter."""
         return self._repo.distinct_set_names(collection_id)
 
+    def find_duplicates(
+        self, name: str, set_name: str, card_number: str, values: CardDetailsValues
+    ) -> list[Card]:
+        """Already-owned cards that look like the same physical card, in any
+
+        collection -- matched case-insensitively on name/set, exactly on
+        everything else (number/language/condition/extras). Used to warn
+        (never block) before adding what might be an accidental re-entry of
+        a card already owned; the actual "is this a real duplicate" call is
+        the user's, since owning several genuine copies is completely
+        normal too (see ``quantity``).
+        """
+        name_key = name.strip().casefold()
+        set_key = set_name.strip().casefold()
+        number_key = card_number.strip()
+        return [
+            card
+            for card in self._repo.search(CardFilter(collection_id=None))
+            if card.name.strip().casefold() == name_key
+            and card.set_name.strip().casefold() == set_key
+            and card.card_number.strip() == number_key
+            and card.language is values.language
+            and card.condition is values.condition
+            and card.is_reverse_holo == values.is_reverse_holo
+            and card.is_signed == values.is_signed
+            and card.is_first_edition == values.is_first_edition
+            and card.is_altered == values.is_altered
+        ]
+
     def get_card(self, card_id: int) -> Card:
         """Return a card by id.
 

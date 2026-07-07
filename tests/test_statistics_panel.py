@@ -18,6 +18,7 @@ from app.services.statistics_service import (
     StalePriceEntry,
     StatisticsOverview,
     ValueBreakdownEntry,
+    ValueOverTimePoint,
 )
 from app.ui.app import build_application
 from app.ui.widgets.statistics_panel import StatisticsPanel
@@ -79,6 +80,7 @@ def _overview(**overrides) -> StatisticsOverview:
         value_by_sealed_category=[],
         most_expensive_sealed_products=[],
         sealed_stale_price_products=[],
+        value_over_time=[],
     )
     base.update(overrides)
     return StatisticsOverview(**base)
@@ -480,3 +482,27 @@ def test_set_sealed_bulk_update_running_disables_button(panel: StatisticsPanel) 
 
     panel.set_sealed_bulk_update_running(False)
     assert panel._sealed_bulk_update_button.isEnabled()
+
+
+def test_value_over_time_chart_hidden_with_fewer_than_two_points(panel: StatisticsPanel) -> None:
+    overview = _overview(
+        value_over_time=[ValueOverTimePoint(recorded_at="2026-01-01T00:00:00+00:00", total_value=10.0)]
+    )
+    panel.show_overview(overview)
+
+    assert panel._value_chart_view.isHidden()
+    assert not panel._value_chart_placeholder.isHidden()
+
+
+def test_value_over_time_chart_shown_with_two_or_more_points(panel: StatisticsPanel) -> None:
+    overview = _overview(
+        value_over_time=[
+            ValueOverTimePoint(recorded_at="2026-01-01T00:00:00+00:00", total_value=10.0),
+            ValueOverTimePoint(recorded_at="2026-01-02T00:00:00+00:00", total_value=15.0),
+        ]
+    )
+    panel.show_overview(overview)
+
+    assert not panel._value_chart_view.isHidden()
+    assert panel._value_chart_placeholder.isHidden()
+    assert len(panel._value_chart.series()) == 1

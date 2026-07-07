@@ -272,3 +272,88 @@ def test_move_card_changes_its_collection(
 def test_move_card_missing_raises_not_found(service: CardService) -> None:
     with pytest.raises(CardNotFoundError):
         service.move_card(999, 1)
+
+
+def test_find_duplicates_matches_identical_identity_fields(
+    service: CardService, collection_id: int
+) -> None:
+    service.add_card_from_catalog(collection_id, _CATALOG_CARD, _values())
+
+    duplicates = service.find_duplicates("Xatu", "Skyridge", "H32", _values())
+
+    assert len(duplicates) == 1
+    assert duplicates[0].name == "Xatu"
+
+
+def test_find_duplicates_matches_case_insensitively_on_name_and_set(
+    service: CardService, collection_id: int
+) -> None:
+    service.add_card_from_catalog(collection_id, _CATALOG_CARD, _values())
+
+    duplicates = service.find_duplicates("XATU", "skyridge", "H32", _values())
+
+    assert len(duplicates) == 1
+
+
+def test_find_duplicates_ignores_a_different_language(
+    service: CardService, collection_id: int
+) -> None:
+    service.add_card_from_catalog(collection_id, _CATALOG_CARD, _values(language=Language.ENGLISH))
+
+    duplicates = service.find_duplicates(
+        "Xatu", "Skyridge", "H32", _values(language=Language.GERMAN)
+    )
+
+    assert duplicates == []
+
+
+def test_find_duplicates_ignores_a_different_condition(
+    service: CardService, collection_id: int
+) -> None:
+    service.add_card_from_catalog(
+        collection_id, _CATALOG_CARD, _values(condition=Condition.NEAR_MINT)
+    )
+
+    duplicates = service.find_duplicates(
+        "Xatu", "Skyridge", "H32", _values(condition=Condition.PLAYED)
+    )
+
+    assert duplicates == []
+
+
+def test_find_duplicates_ignores_a_different_extra(service: CardService, collection_id: int) -> None:
+    service.add_card_from_catalog(
+        collection_id, _CATALOG_CARD, _values(is_reverse_holo=False)
+    )
+
+    duplicates = service.find_duplicates(
+        "Xatu", "Skyridge", "H32", _values(is_reverse_holo=True)
+    )
+
+    assert duplicates == []
+
+
+def test_find_duplicates_ignores_a_different_card_number(
+    service: CardService, collection_id: int
+) -> None:
+    service.add_card_from_catalog(collection_id, _CATALOG_CARD, _values())
+
+    duplicates = service.find_duplicates("Xatu", "Skyridge", "H33", _values())
+
+    assert duplicates == []
+
+
+def test_find_duplicates_searches_across_all_collections(
+    service: CardService, temp_db: Database, collection_id: int
+) -> None:
+    other_id = CollectionRepository(temp_db).create("Vintage 5").id
+    service.add_card_from_catalog(collection_id, _CATALOG_CARD, _values())
+
+    duplicates = service.find_duplicates("Xatu", "Skyridge", "H32", _values())
+
+    assert len(duplicates) == 1
+    assert duplicates[0].collection_id != other_id  # sanity: found in the original collection
+
+
+def test_find_duplicates_returns_empty_list_when_nothing_owned(service: CardService) -> None:
+    assert service.find_duplicates("Xatu", "Skyridge", "H32", _values()) == []

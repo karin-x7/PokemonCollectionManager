@@ -5,10 +5,12 @@ from __future__ import annotations
 import os
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import MagicMock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtWidgets import QMessageBox
 
 from app.catalog.models import CatalogCard
 from app.database.connection import Database
@@ -505,3 +507,75 @@ def test_available_sets_are_refreshed_after_adding_a_card(
     controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
 
     assert controller._panel.filter_bar._set_combo.findText("Skyridge") > 0
+
+
+def test_adding_a_first_copy_never_prompts_for_confirmation(
+    monkeypatch, controller: CardController, collection_id: int
+) -> None:
+    question = MagicMock()
+    monkeypatch.setattr(QMessageBox, "question", question)
+    controller.set_collection(collection_id)
+
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
+
+    question.assert_not_called()
+    assert _names(controller) == ["Xatu"]
+
+
+def test_adding_an_exact_duplicate_asks_for_confirmation(
+    monkeypatch, controller: CardController, collection_id: int
+) -> None:
+    controller.set_collection(collection_id)
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)  # first copy, no prompt
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **kw: QMessageBox.StandardButton.Yes)
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)  # second, identical copy
+
+    assert _names(controller) == ["Xatu", "Xatu"]
+
+
+def test_declining_the_duplicate_prompt_does_not_add_the_card(
+    monkeypatch, controller: CardController, collection_id: int
+) -> None:
+    controller.set_collection(collection_id)
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)  # first copy, no prompt
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **kw: QMessageBox.StandardButton.No)
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)  # declined
+
+    assert _names(controller) == ["Xatu"]
+
+
+def test_duplicate_prompt_mentions_the_existing_collection_name(
+    monkeypatch, controller: CardController, collection_id: int
+) -> None:
+    controller.set_collection(collection_id)
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
+
+    captured = {}
+
+    def _question(parent, title, message, *a, **kw):
+        captured["message"] = message
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(QMessageBox, "question", _question)
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
+
+    assert "Binder" in captured["message"]
+    assert "Xatu" in captured["message"]
+
+
+def test_manual_add_also_checks_for_duplicates(
+    monkeypatch, controller: CardController, collection_id: int
+) -> None:
+    controller.set_collection(collection_id)
+    controller._panel.manual_add_confirmed.emit(
+        "Venusaur", "Legendary Collection", "18", _VALUES, None, ""
+    )
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **kw: QMessageBox.StandardButton.No)
+    controller._panel.manual_add_confirmed.emit(
+        "Venusaur", "Legendary Collection", "18", _VALUES, None, ""
+    )
+
+    assert _names(controller) == ["Venusaur"]  # the declined second copy was not added

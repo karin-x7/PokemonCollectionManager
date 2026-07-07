@@ -71,6 +71,17 @@ class SealedPriceRepository:
         ).fetchall()
         return [_row_to_record(row) for row in rows]
 
+    def list_all(self) -> list[SealedPriceRecord]:
+        """Every sealed product's price history, across all of them, oldest first.
+
+        Mirrors ``PriceRepository.list_all`` -- used to build the combined
+        "collection value over time" chart.
+        """
+        rows = self._conn.execute(
+            "SELECT * FROM sealed_price_history ORDER BY recorded_at ASC, id ASC"
+        ).fetchall()
+        return [_row_to_record(row) for row in rows]
+
     def delete_for_product(self, sealed_product_id: int) -> None:
         """Delete every price history entry for a sealed product. Irreversible."""
         with self._conn:

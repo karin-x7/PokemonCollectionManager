@@ -242,6 +242,38 @@ _V8_BACKFILL_EX_SERIES_NAMES = tuple(
     for set_code, name in _V8_EX_SERIES_NAMES
 )
 
+# --- Version 9: wantlist (cards not yet owned, tracked against a target
+# price) -- a global list like sealed_products, always identified by a
+# directly pasted Cardmarket link (no catalogue integration in this first
+# version). No price-history table of its own: unlike owned cards/sealed
+# products, there's no "value over time" to chart for something not owned
+# yet -- just the latest known price vs. the target. --------------------- #
+
+_V9_WANTLIST_ITEMS = """
+CREATE TABLE IF NOT EXISTS wantlist_items (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    name              TEXT    NOT NULL,
+    set_name          TEXT    NOT NULL DEFAULT '',
+    card_number       TEXT    NOT NULL DEFAULT '',
+    language          TEXT    NOT NULL DEFAULT 'en',
+    condition         TEXT    NOT NULL DEFAULT 'near_mint',
+    target_price      REAL    NOT NULL,
+    notes             TEXT    NOT NULL DEFAULT '',
+    cardmarket_url    TEXT,
+    current_price     REAL,
+    price_currency    TEXT    NOT NULL DEFAULT 'EUR',
+    price_quality     TEXT    NOT NULL DEFAULT 'no_price',
+    price_rationale   TEXT,
+    price_updated_at  TEXT,
+    created_at        TEXT    NOT NULL,
+    updated_at        TEXT    NOT NULL
+);
+"""
+
+_V9_INDEXES = (
+    "CREATE INDEX IF NOT EXISTS idx_wantlist_items_name ON wantlist_items(name);",
+)
+
 
 #: The ordered list of all migrations. Append-only.
 MIGRATIONS: tuple[Migration, ...] = (
@@ -311,5 +343,14 @@ MIGRATIONS: tuple[Migration, ...] = (
             "correction existed."
         ),
         statements=_V8_BACKFILL_EX_SERIES_NAMES,
+    ),
+    Migration(
+        version=9,
+        description=(
+            "Wantlist: cards not yet owned, tracked against a target price -- "
+            "a global list (mirrors sealed_products), always identified by a "
+            "directly pasted Cardmarket link."
+        ),
+        statements=(_V9_WANTLIST_ITEMS, *_V9_INDEXES),
     ),
 )

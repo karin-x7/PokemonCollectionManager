@@ -39,3 +39,26 @@ def test_base_dir_is_exe_directory_when_frozen(monkeypatch, tmp_path) -> None:
         assert reloaded.BASE_DIR == tmp_path
     finally:
         importlib.reload(config_module)
+
+
+def test_data_and_logs_dirs_stay_at_the_project_root_when_not_frozen(monkeypatch) -> None:
+    reloaded = _reload_with(monkeypatch, frozen=False)
+    try:
+        project_root = Path(__file__).resolve().parent.parent
+        assert reloaded.DATA_DIR == project_root / "data"
+        assert reloaded.LOGS_DIR == project_root / "logs"
+    finally:
+        importlib.reload(config_module)
+
+
+def test_data_and_logs_dirs_are_nested_under_a_named_folder_when_frozen(
+    monkeypatch, tmp_path
+) -> None:
+    fake_exe = tmp_path / "PokemonCollectionManager.exe"
+    reloaded = _reload_with(monkeypatch, frozen=True, executable=str(fake_exe))
+    try:
+        app_root = tmp_path / "PokemonCollectionManager"
+        assert reloaded.DATA_DIR == app_root / "data"
+        assert reloaded.LOGS_DIR == app_root / "logs"
+    finally:
+        importlib.reload(config_module)

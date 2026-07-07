@@ -13,6 +13,7 @@ _EXPECTED_TABLES = {
     "settings",
     "sealed_products",
     "sealed_price_history",
+    "wantlist_items",
     "schema_migrations",
 }
 
@@ -44,7 +45,7 @@ def test_schema_version_is_recorded(temp_db: Database) -> None:
     version = temp_db.connection.execute(
         "SELECT MAX(version) AS v FROM schema_migrations"
     ).fetchone()["v"]
-    assert version == 8
+    assert version == 9
 
 
 def test_migration_8_backfills_ex_series_set_names(tmp_path: Path) -> None:
@@ -99,7 +100,7 @@ def test_migrations_are_idempotent(tmp_path: Path) -> None:
     second = Database(db_path)
     applied_second = second.initialize()
     try:
-        assert applied_first == 8
+        assert applied_first == 9
         assert applied_second == 0  # nothing pending on a second run
     finally:
         second.close()

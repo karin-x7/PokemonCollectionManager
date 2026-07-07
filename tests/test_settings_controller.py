@@ -17,16 +17,27 @@ from app.ui.controllers.settings_controller import SettingsController
 from app.ui.main_window import MainWindow
 
 
+class FakeSignal:
+    def connect(self, slot) -> None:
+        pass
+
+
 class FakeDialog:
     instances: list["FakeDialog"] = []
 
     def __init__(self, parent=None) -> None:
         self.exec_calls = 0
+        self.restore_backup_requested = FakeSignal()
         FakeDialog.instances.append(self)
 
     def exec(self) -> int:
         self.exec_calls += 1
         return 0
+
+
+class FakeBackupController:
+    def start(self) -> None:
+        pass
 
 
 @pytest.fixture(scope="module")
@@ -49,7 +60,7 @@ def _reset_fake_dialog():
 
 def test_start_opens_the_settings_dialog(monkeypatch, main_window: MainWindow) -> None:
     monkeypatch.setattr("app.ui.controllers.settings_controller.SettingsDialog", FakeDialog)
-    controller = SettingsController(main_window)
+    controller = SettingsController(main_window, FakeBackupController())
 
     controller.start()
 

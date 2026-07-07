@@ -78,5 +78,6 @@ def run_gui(database: Database | None = None) -> int:
     app = build_application()
     window = MainWindow(database=database)
     window.show()
+    window.start_update_check()
     logger.info("GUI started.")
     return app.exec()

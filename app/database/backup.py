@@ -10,6 +10,7 @@ and never raises: a failed backup must never block the app from starting.
 from __future__ import annotations
 
 import shutil
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -70,6 +71,62 @@ def backup_database(
     logger.info("Database backed up to %s", dest)
     _prune_old_backups(directory, db_path.stem)
     return dest
+
+
+@dataclass(frozen=True, slots=True)
+class BackupInfo:
+    """One backup file, as shown in the restore-from-backup UI."""
+
+    path: Path
+    created_at: datetime
+    size_bytes: int
+
+
+def list_backups(db_path: Path, backups_dir: Path | None = None) -> list[BackupInfo]:
+    """Existing backups for ``db_path``, newest first."""
+    directory = backups_dir if backups_dir is not None else config.BACKUPS_DIR
+    infos = []
+    for backup in _existing_backups(directory, db_path.stem):
+        try:
+            stat = backup.stat()
+        except OSError:
+            continue  # vanished between listing and stat()-ing -- skip it
+        infos.append(
+            BackupInfo(
+                path=backup, created_at=datetime.fromtimestamp(stat.st_mtime), size_bytes=stat.st_size
+            )
+        )
+    return infos
+
+
+def restore_backup(backup_path: Path, db_path: Path, backups_dir: Path | None = None) -> None:
+    """Replace ``db_path`` with ``backup_path``'s contents.
+
+    Takes a fresh safety backup of the *current* ``db_path`` first
+    (ignoring the normal 24h throttle -- this is a deliberate, one-off
+    action, not the routine pre-migration backup), so a restore is itself
+    reversible via another restore. The caller is responsible for closing
+    any open connection to ``db_path`` first -- SQLite's WAL sidecar files
+    are only guaranteed flushed/removed once the last connection closes.
+
+    Unlike :func:`backup_database`, this raises ``OSError`` on failure
+    rather than swallowing it: restoring is a deliberate user action, so a
+    failure should surface as an error, not silently do nothing.
+
+    Copies to a temporary file first and only then swaps it into place via
+    an atomic rename, so a failure partway through the copy (disk full,
+    permissions, ...) can never leave ``db_path`` half-overwritten.
+    """
+    if db_path.exists():
+        backup_database(db_path, backups_dir, min_interval=timedelta(0))
+    tmp_path = db_path.with_name(db_path.name + ".restoring")
+    try:
+        shutil.copy2(backup_path, tmp_path)
+        tmp_path.replace(db_path)
+    except OSError:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    logger.info("Database restored from %s", backup_path)
 
 
 def _existing_backups(directory: Path, stem: str) -> list[Path]:

@@ -16,6 +16,7 @@ from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QMainWindow,
     QPushButton,
@@ -36,21 +37,29 @@ from app.database.repositories.collection_repository import CollectionRepository
 from app.database.repositories.price_repository import PriceRepository
 from app.database.repositories.sealed_price_repository import SealedPriceRepository
 from app.database.repositories.sealed_product_repository import SealedProductRepository
+from app.database.repositories.wantlist_repository import WantlistRepository
 from app.i18n import tr
 from app.logging_config import get_logger
+from app.models.card import CardFilter
+from app.models.sealed_product import SealedProductFilter
 from app.services.card_service import CardService
 from app.services.catalog_search_service import CatalogSearchService
 from app.services.collection_service import CollectionService
 from app.services.export_service import ExportService
+from app.services.import_service import ImportService
 from app.services.price_service import PriceService
 from app.services.sealed_price_service import SealedPriceService
 from app.services.sealed_product_service import SealedProductService
 from app.services.statistics_service import StatisticsService
+from app.services.wantlist_price_service import WantlistPriceService
+from app.services.wantlist_service import WantlistService
+from app.ui.controllers.backup_controller import BackupController
 from app.ui.controllers.card_controller import CardController
 from app.ui.controllers.cardmarket_search_controller import CardmarketSearchController
 from app.ui.controllers.catalog_search_controller import CatalogSearchController
 from app.ui.controllers.collection_controller import CollectionController
 from app.ui.controllers.export_controller import ExportController
+from app.ui.controllers.import_controller import ImportController
 from app.ui.controllers.manual_entry_controller import ManualEntryController
 from app.ui.controllers.price_controller import PriceController
 from app.ui.controllers.sealed_entry_controller import SealedEntryController
@@ -58,6 +67,9 @@ from app.ui.controllers.sealed_price_controller import SealedPriceController
 from app.ui.controllers.sealed_product_controller import SealedProductController
 from app.ui.controllers.settings_controller import SettingsController
 from app.ui.controllers.statistics_controller import StatisticsController
+from app.ui.controllers.wantlist_controller import WantlistController
+from app.ui.controllers.wantlist_entry_controller import WantlistEntryController
+from app.ui.controllers.wantlist_price_controller import WantlistPriceController
 from app.ui.theme import build_stylesheet
 from app.ui.widgets import CardDetailPanel, CardListPanel, CollectionPanel
 from app.ui.widgets.price_history_dock import PriceHistoryDock
@@ -65,6 +77,8 @@ from app.ui.widgets.sealed_price_history_dock import SealedPriceHistoryDock
 from app.ui.widgets.sealed_product_detail_panel import SealedProductDetailPanel
 from app.ui.widgets.sealed_product_list_panel import SealedProductListPanel
 from app.ui.widgets.statistics_panel import StatisticsPanel
+from app.ui.widgets.wantlist_panel import WantlistPanel
+from app.ui.workers.update_check_worker import UpdateCheckWorker
 
 logger = get_logger(__name__)
 
@@ -97,6 +111,7 @@ class MainWindow(QMainWindow):
     manual_entry_requested = Signal()
     sealed_add_requested = Signal()
     export_requested = Signal()
+    import_requested = Signal()
     settings_requested = Signal()
 
     def __init__(self, database: Database | None = None) -> None:
@@ -300,29 +315,37 @@ class MainWindow(QMainWindow):
         # two actions are the only way to switch between "Karten"/"Statistik".
         self._act_tab_cards = QAction(tr("Karten"), self)
         self._act_tab_sealed = QAction(tr("Sealed"), self)
+        self._act_tab_wantlist = QAction("Wantlist", self)
         self._act_tab_stats = QAction(tr("Statistik"), self)
         self._act_tab_cards.setCheckable(True)
         self._act_tab_sealed.setCheckable(True)
+        self._act_tab_wantlist.setCheckable(True)
         self._act_tab_stats.setCheckable(True)
         self._act_tab_cards.setChecked(True)
         tab_nav_group = QActionGroup(self)
         tab_nav_group.setExclusive(True)
         tab_nav_group.addAction(self._act_tab_cards)
         tab_nav_group.addAction(self._act_tab_sealed)
+        tab_nav_group.addAction(self._act_tab_wantlist)
         tab_nav_group.addAction(self._act_tab_stats)
-        # Tab order: Karten, Sealed, Statistik (user request).
+        # Tab order: Karten, Sealed, Wantlist, Statistik.
         self._act_tab_cards.triggered.connect(lambda: self._switch_central_tab(0))
         self._act_tab_sealed.triggered.connect(lambda: self._switch_central_tab(1))
-        self._act_tab_stats.triggered.connect(lambda: self._switch_central_tab(2))
+        self._act_tab_wantlist.triggered.connect(lambda: self._switch_central_tab(2))
+        self._act_tab_stats.triggered.connect(lambda: self._switch_central_tab(3))
         toolbar.addAction(self._act_tab_cards)
         toolbar.addAction(self._act_tab_sealed)
+        toolbar.addAction(self._act_tab_wantlist)
         toolbar.addAction(self._act_tab_stats)
 
         self._act_export = QAction(tr("Export"), self)
+        self._act_import = QAction("Import", self)
         self._act_settings = QAction(tr("Infos und Einstellungen"), self)
         self._act_export.triggered.connect(self.export_requested)
+        self._act_import.triggered.connect(self.import_requested)
         self._act_settings.triggered.connect(self.settings_requested)
         toolbar.addAction(self._act_export)
+        toolbar.addAction(self._act_import)
         toolbar.addAction(self._act_settings)
 
     def _build_central(self) -> None:
@@ -399,7 +422,11 @@ class MainWindow(QMainWindow):
 
         self.statistics_panel = StatisticsPanel()
         statistics_service = StatisticsService(
-            card_service, collection_service, PriceRepository(self._database), sealed_product_service
+            card_service,
+            collection_service,
+            PriceRepository(self._database),
+            sealed_product_service,
+            SealedPriceRepository(self._database),
         )
         self.statistics_controller = StatisticsController(
             self.statistics_panel, statistics_service, parent=self
@@ -429,11 +456,28 @@ class MainWindow(QMainWindow):
             self, export_service, collection_service, parent=self
         )
 
+        def _refresh_after_import() -> None:
+            # Referenced controllers are all constructed by the time an
+            # import actually runs (a real user click, long after
+            # _build_central() itself returns) -- fine even though
+            # sealed_product_controller/wantlist_controller don't exist yet
+            # at this exact point in _build_central().
+            self.collection_controller.refresh()
+            self.card_controller.refresh()
+            self.sealed_product_controller.refresh()
+            self.wantlist_controller.refresh()
+
+        import_service = ImportService(card_service, collection_service, sealed_product_service)
+        self.import_controller = ImportController(
+            self, import_service, on_imported=_refresh_after_import, parent=self
+        )
+
         self.manual_entry_controller = ManualEntryController(
             self, self.card_controller, pokemontcg_client, parent=self
         )
 
-        self.settings_controller = SettingsController(self, parent=self)
+        self.backup_controller = BackupController(self, self._database, parent=self)
+        self.settings_controller = SettingsController(self, self.backup_controller, parent=self)
 
         self.sealed_product_controller = SealedProductController(
             self.sealed_product_panel,
@@ -474,6 +518,51 @@ class MainWindow(QMainWindow):
             self.sealed_price_controller.start_lookup
         )
 
+        self.wantlist_panel = WantlistPanel()
+        wantlist_service = WantlistService(WantlistRepository(self._database))
+        self.wantlist_controller = WantlistController(
+            self.wantlist_panel,
+            wantlist_service,
+            card_service,
+            collection_service,
+            on_converted=self.card_controller.refresh,
+            parent=self,
+        )
+        self.wantlist_entry_controller = WantlistEntryController(
+            self, self.wantlist_controller, parent=self
+        )
+        # Not collection-scoped (like sealed products), so there's no
+        # "collection changed" trigger to react to -- load the full list
+        # once up front.
+        self.wantlist_controller.refresh()
+
+        def open_wantlist_price_service() -> tuple[WantlistPriceService, Database]:
+            # Mirrors open_sealed_price_service() above: a fresh connection
+            # per lookup, since this runs on WantlistPriceLookupWorker's own
+            # thread and SQLite connections can't be shared across threads.
+            thread_database = Database(self._database.path)
+            thread_database.initialize()
+            thread_pricing = PriceService(
+                CardRepository(thread_database), PriceRepository(thread_database), pokemontcg_client
+            )
+            service = WantlistPriceService(WantlistRepository(thread_database), thread_pricing)
+            return service, thread_database
+
+        self.wantlist_price_controller = WantlistPriceController(
+            self,
+            self.wantlist_panel,
+            open_wantlist_price_service,
+            self.wantlist_controller,
+            parent=self,
+        )
+        self.wantlist_panel.add_requested.connect(self.wantlist_entry_controller.start)
+        self.wantlist_panel.price_lookup_requested.connect(
+            self.wantlist_price_controller.start_lookup
+        )
+        self.wantlist_panel.bulk_price_lookup_requested.connect(
+            self.wantlist_price_controller.start_bulk_update
+        )
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.collection_panel)
         splitter.addWidget(self.card_list_panel)
@@ -500,6 +589,7 @@ class MainWindow(QMainWindow):
         tabs = QTabWidget()
         tabs.addTab(splitter, tr("Karten"))
         tabs.addTab(sealed_splitter, tr("Sealed"))
+        tabs.addTab(self.wantlist_panel, "Wantlist")
         tabs.addTab(self.statistics_panel, tr("Statistiken"))
         # Navigated exclusively via the toolbar buttons above (_act_tab_cards/
         # _act_tab_stats) -- the tab bar itself would just be a redundant
@@ -511,13 +601,41 @@ class MainWindow(QMainWindow):
     def _build_statusbar(self) -> None:
         status = QStatusBar()
         status.showMessage(f"{config.APP_NAME} v{config.APP_VERSION}  ·  {tr('bereit')}")
+        # A permanent widget (not another showMessage() call) -- unlike the
+        # message above, this must survive every later showMessage(...,
+        # 5000) elsewhere (price lookups, exports, ...) auto-clearing after
+        # a few seconds.
+        self._update_hint_label = QLabel("")
+        self._update_hint_label.setTextFormat(Qt.TextFormat.RichText)
+        self._update_hint_label.setOpenExternalLinks(True)
+        status.addPermanentWidget(self._update_hint_label)
         self.setStatusBar(status)
+
+    def start_update_check(self) -> None:
+        """Best-effort, non-blocking check for a newer GitHub release.
+
+        Not called from ``__init__`` -- tests construct :class:`MainWindow`
+        directly and shouldn't trigger a real network call on every
+        instantiation. The real entry point (:func:`app.ui.app.run_gui`)
+        calls this once after showing the window.
+        """
+        self._update_check_worker = UpdateCheckWorker(config.APP_VERSION, parent=self)
+        self._update_check_worker.succeeded.connect(self._on_update_check_succeeded)
+        self._update_check_worker.start()
+
+    def _on_update_check_succeeded(self, info) -> None:
+        if info is None:
+            return
+        self._update_hint_label.setText(
+            f'<a href="{info.url}">Update available: v{info.version}</a>'
+        )
 
     def _connect_signals(self) -> None:
         """Wire toolbar intents to their real handlers."""
         self.search_submitted.connect(self.catalog_search_controller.handle_search)
         self.manual_entry_requested.connect(self.manual_entry_controller.start)
         self.export_requested.connect(self.export_controller.handle_export_requested)
+        self.import_requested.connect(self.import_controller.handle_import_requested)
         self.settings_requested.connect(self.settings_controller.start)
         self.collection_controller.selection_changed.connect(self.card_controller.set_collection)
         self.catalog_search_controller.card_add_requested.connect(
@@ -538,11 +656,12 @@ class MainWindow(QMainWindow):
         # sync while the user is on the "Karten" tab. Compared by index, not
         # by tabText(): that text is translated (see app/i18n.py) and would
         # no longer match this literal once the UI language is English.
-        if index == 2:
+        if index == 3:
             self.statistics_controller.refresh()
         self._act_tab_cards.setChecked(index == 0)
         self._act_tab_sealed.setChecked(index == 1)
-        self._act_tab_stats.setChecked(index == 2)
+        self._act_tab_wantlist.setChecked(index == 2)
+        self._act_tab_stats.setChecked(index == 3)
         # The catalogue search and manual card entry only make sense on
         # "Karten"; the sealed-add button only on "Sealed" -- each tab's
         # own controls occupy the same toolbar slot, swapped out rather

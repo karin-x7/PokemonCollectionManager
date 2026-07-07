@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from PySide6.QtCore import QObject
-from PySide6.QtWidgets import QDialog
+from PySide6.QtWidgets import QDialog, QMessageBox
 
 from app.catalog.models import CatalogCard
 from app.database.repositories.price_repository import PriceRepository
@@ -117,6 +117,11 @@ class CardController(QObject):
     def _on_add_confirmed(self, catalog_card: CatalogCard, values: CardDetailsValues) -> None:
         if self._collection_id is None:
             return
+        duplicates = self._service.find_duplicates(
+            catalog_card.name, catalog_card.set_name, catalog_card.card_number, values
+        )
+        if not self._confirm_duplicate(catalog_card.name, duplicates):
+            return
         try:
             card = self._service.add_card_from_catalog(self._collection_id, catalog_card, values)
         except ServiceError as exc:
@@ -144,6 +149,9 @@ class CardController(QObject):
     ) -> None:
         if self._collection_id is None:
             return
+        duplicates = self._service.find_duplicates(name, set_name, card_number, values)
+        if not self._confirm_duplicate(name, duplicates):
+            return
         try:
             card = self._service.add_card_manual(
                 self._collection_id, name, set_name, card_number, values, photo_path, set_code
@@ -154,6 +162,31 @@ class CardController(QObject):
         self.refresh()
         self._panel.select_card(card.id)
         self._sync_detail_panel()
+
+    def _confirm_duplicate(self, name: str, duplicates: list[Card]) -> bool:
+        """Ask the user to confirm adding an apparent duplicate.
+
+        Returns ``True`` to proceed (no duplicates found, or the user
+        confirmed anyway), ``False`` to abort the add.
+        """
+        if not duplicates:
+            return True
+        collection_names = {c.id: c.name for c in self._collections.list_collections()}
+        where = ", ".join(
+            sorted({collection_names.get(d.collection_id, "?") for d in duplicates})
+        )
+        total_owned = sum(d.quantity for d in duplicates)
+        unit = "copy" if total_owned == 1 else "copies"
+        answer = QMessageBox.question(
+            self._panel,
+            "Possible duplicate",
+            f'You already own {total_owned} {unit} of "{name}" with the same set, '
+            f"number, language, and condition (in: {where}).\n\n"
+            "Add another copy anyway?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
 
     def _on_edit(self, card_id: int, values: CardDetailsValues) -> None:
         try:

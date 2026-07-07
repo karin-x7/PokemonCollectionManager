@@ -20,9 +20,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from app.database.repositories.price_repository import PriceRepository
+from app.database.repositories.sealed_price_repository import SealedPriceRepository
 from app.i18n import tr
 from app.models.card import Card, CardFilter
 from app.models.collection import Collection
+from app.models.price import PriceRecord
+from app.models.sealed_price import SealedPriceRecord
 from app.models.sealed_product import SealedProduct, SealedProductFilter
 from app.services.card_service import CardService
 from app.services.collection_service import CollectionService
@@ -33,9 +36,9 @@ from app.services.sealed_product_service import SealedProductService
 _TOP_EXPENSIVE_CARDS = 10
 _TOP_EXPENSIVE_SEALED = 10
 #: A card whose price is older than this (or was never priced at all) shows
-#: up under "Karten mit veraltetem Preis" -- lowered from the original 90
-#: (3 months) to 60 (2 months) per explicit user request.
-STALE_PRICE_THRESHOLD_DAYS = 60
+#: up under "Karten mit veraltetem Preis" -- lowered from 90 (3 months) to 60
+#: (2 months) and then to 30 (1 month), both per explicit user request.
+STALE_PRICE_THRESHOLD_DAYS = 30
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +96,18 @@ class StaleSealedPriceEntry:
 
 
 @dataclass(frozen=True, slots=True)
+class ValueOverTimePoint:
+    """The combined (cards + sealed) collection value at one point in time.
+
+    One point per distinct ``recorded_at`` timestamp across every price
+    update ever recorded, forward-filled -- see :func:`value_over_time`.
+    """
+
+    recorded_at: str
+    total_value: float
+
+
+@dataclass(frozen=True, slots=True)
 class StatisticsOverview:
     """Everything the statistics view shows, computed in one pass."""
 
@@ -125,6 +140,11 @@ class StatisticsOverview:
     most_expensive_sealed_products: list[SealedProduct]
     sealed_stale_price_products: list[StaleSealedPriceEntry]
 
+    #: The combined collection's value over time (cards + sealed), one point
+    #: per price-update event across the whole collection -- see
+    #: :func:`value_over_time`.
+    value_over_time: list[ValueOverTimePoint]
+
 
 def days_since_price_update(item: Card | SealedProduct, now: datetime | None = None) -> int | None:
     """Days since ``item``'s price was last determined, or ``None`` if never.
@@ -154,6 +174,51 @@ def _value_of(item: Card | SealedProduct) -> float:
     return item.total_value or 0.0
 
 
+def value_over_time(
+    cards: list[Card],
+    sealed_products: list[SealedProduct],
+    card_history: list[PriceRecord],
+    sealed_history: list[SealedPriceRecord],
+) -> list[ValueOverTimePoint]:
+    """The combined collection value at each point any item's price changed.
+
+    A step function, not a per-item chart: at each distinct timestamp where
+    *any* card or sealed product got a new price, the total is every item's
+    most-recently-known price as of that moment (forward-filled), multiplied
+    by its *current* quantity -- quantity history isn't tracked, so a past
+    quantity change isn't reflected, only past price changes are. An item
+    with no price yet contributes nothing until its first recorded price.
+    """
+    card_quantity = {card.id: card.quantity for card in cards if card.id is not None}
+    sealed_quantity = {
+        product.id: product.quantity for product in sealed_products if product.id is not None
+    }
+
+    events = sorted(
+        [
+            (record.recorded_at, "card", record.card_id, record.price)
+            for record in card_history
+            if record.card_id in card_quantity
+        ]
+        + [
+            (record.recorded_at, "sealed", record.sealed_product_id, record.price)
+            for record in sealed_history
+            if record.sealed_product_id in sealed_quantity
+        ],
+        key=lambda event: event[0],
+    )
+
+    latest_value: dict[tuple[str, int], float] = {}
+    points: list[ValueOverTimePoint] = []
+    for recorded_at, kind, item_id, price in events:
+        quantity = card_quantity[item_id] if kind == "card" else sealed_quantity[item_id]
+        latest_value[(kind, item_id)] = price * quantity
+        points.append(
+            ValueOverTimePoint(recorded_at=recorded_at, total_value=round(sum(latest_value.values()), 2))
+        )
+    return points
+
+
 def _sorted_breakdown(
     totals: dict[str, float], codes: dict[str, str] | None = None
 ) -> list[ValueBreakdownEntry]:
@@ -173,12 +238,14 @@ class StatisticsService:
         collection_service: CollectionService,
         price_repository: PriceRepository,
         sealed_product_service: SealedProductService,
+        sealed_price_repository: SealedPriceRepository,
         now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ) -> None:
         self._cards = card_service
         self._collections = collection_service
         self._prices = price_repository
         self._sealed_products = sealed_product_service
+        self._sealed_prices = sealed_price_repository
         self._now = now
 
     def compute_overview(self) -> StatisticsOverview:
@@ -210,6 +277,9 @@ class StatisticsService:
             ),
             most_expensive_sealed_products=self._most_expensive_sealed(all_sealed),
             sealed_stale_price_products=self._stale_price_sealed(all_sealed),
+            value_over_time=value_over_time(
+                all_cards, all_sealed, self._prices.list_all(), self._sealed_prices.list_all()
+            ),
         )
 
     def _per_collection_summary(

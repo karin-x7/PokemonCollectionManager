@@ -79,7 +79,7 @@ def test_toolbar_nav_switches_central_tab(qapp) -> None:
 
     window._act_tab_stats.trigger()
 
-    assert tabs.currentIndex() == 2
+    assert tabs.currentIndex() == 3
     assert window._act_tab_stats.isChecked()
     assert not window._act_tab_sealed.isChecked()
 

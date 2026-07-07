@@ -22,9 +22,17 @@ if getattr(sys, "frozen", False):
     # database, photos and logs on every restart. The .exe's own directory
     # is stable across launches, so data lives next to it instead.
     BASE_DIR: Path = Path(sys.executable).resolve().parent
+    # data/ and logs/ live inside their own named subfolder rather than
+    # directly beside the .exe (user request): if someone runs the .exe
+    # straight from their Desktop, two loose "data"/"logs" folders would
+    # otherwise clutter it -- one clearly-named folder is less messy.
+    _APP_DATA_ROOT: Path = BASE_DIR / "PokemonCollectionManager"
 else:
-    # Project root = parent directory of the ``app`` package.
+    # Project root = parent directory of the ``app`` package. Unaffected by
+    # the .exe case above: a source checkout already keeps data/ and logs/
+    # at the project root, and nothing about that is "loose on the Desktop".
     BASE_DIR: Path = Path(__file__).resolve().parent.parent
+    _APP_DATA_ROOT: Path = BASE_DIR
 
 
 def _path_from_env(env_var: str, default: Path) -> Path:
@@ -33,8 +41,8 @@ def _path_from_env(env_var: str, default: Path) -> Path:
     return Path(value).expanduser().resolve() if value else default
 
 
-DATA_DIR: Path = _path_from_env("PCM_DATA_DIR", BASE_DIR / "data")
-LOGS_DIR: Path = _path_from_env("PCM_LOGS_DIR", BASE_DIR / "logs")
+DATA_DIR: Path = _path_from_env("PCM_DATA_DIR", _APP_DATA_ROOT / "data")
+LOGS_DIR: Path = _path_from_env("PCM_LOGS_DIR", _APP_DATA_ROOT / "logs")
 PHOTOS_DIR: Path = DATA_DIR / "photos"
 #: Sealed products' own photos (screenshot-captured from Cardmarket, unlike
 #: cards' pokemontcg.io downloads) -- kept in a separate directory rather

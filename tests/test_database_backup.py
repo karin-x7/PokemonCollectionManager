@@ -7,7 +7,9 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
-from app.database.backup import backup_database
+import pytest
+
+from app.database.backup import backup_database, list_backups, restore_backup
 
 
 def _make_db(path: Path, content: bytes = b"fake-sqlite-bytes") -> None:
@@ -95,3 +97,78 @@ def test_never_raises_when_the_copy_fails(tmp_path: Path, monkeypatch) -> None:
     result = backup_database(db_path, backups_dir=backups_dir)
 
     assert result is None
+
+
+def test_list_backups_returns_them_newest_first(tmp_path: Path) -> None:
+    db_path = tmp_path / "collection.db"
+    _make_db(db_path)
+    backups_dir = tmp_path / "backups"
+    backups_dir.mkdir()
+    older = backups_dir / "collection_20260101_000000.db"
+    newer = backups_dir / "collection_20260601_000000.db"
+    older.write_bytes(b"old")
+    newer.write_bytes(b"new")
+    old_time = time.time() - 999999
+    os.utime(older, (old_time, old_time))
+
+    backups = list_backups(db_path, backups_dir=backups_dir)
+
+    assert [b.path for b in backups] == [newer, older]
+    assert backups[0].size_bytes == len(b"new")
+
+
+def test_list_backups_returns_empty_list_when_none_exist(tmp_path: Path) -> None:
+    db_path = tmp_path / "collection.db"
+
+    assert list_backups(db_path, backups_dir=tmp_path / "backups") == []
+
+
+def test_restore_backup_replaces_the_database_file(tmp_path: Path) -> None:
+    db_path = tmp_path / "collection.db"
+    _make_db(db_path, content=b"current-data")
+    backups_dir = tmp_path / "backups"
+    backups_dir.mkdir()
+    backup_path = backups_dir / "collection_20260101_000000.db"
+    backup_path.write_bytes(b"older-data")
+
+    restore_backup(backup_path, db_path, backups_dir=backups_dir)
+
+    assert db_path.read_bytes() == b"older-data"
+
+
+def test_restore_backup_backs_up_the_current_database_first(tmp_path: Path) -> None:
+    db_path = tmp_path / "collection.db"
+    _make_db(db_path, content=b"current-data")
+    backups_dir = tmp_path / "backups"
+    backups_dir.mkdir()
+    backup_path = backups_dir / "collection_20260101_000000.db"
+    backup_path.write_bytes(b"older-data")
+
+    restore_backup(backup_path, db_path, backups_dir=backups_dir)
+
+    safety_backups = [
+        p for p in backups_dir.glob("collection_*.db") if p.read_bytes() == b"current-data"
+    ]
+    assert len(safety_backups) == 1
+
+
+def test_restore_backup_leaves_the_database_untouched_on_a_failed_copy(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "collection.db"
+    _make_db(db_path, content=b"current-data")
+    backups_dir = tmp_path / "backups"
+    backups_dir.mkdir()
+    backup_path = backups_dir / "collection_20260101_000000.db"
+    backup_path.write_bytes(b"older-data")
+
+    def _raise(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("app.database.backup.shutil.copy2", _raise)
+
+    with pytest.raises(OSError):
+        restore_backup(backup_path, db_path, backups_dir=backups_dir)
+
+    assert db_path.read_bytes() == b"current-data"
+    assert not (db_path.with_name(db_path.name + ".restoring")).exists()

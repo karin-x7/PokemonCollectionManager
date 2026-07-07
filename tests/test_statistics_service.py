@@ -10,15 +10,21 @@ from app.database.connection import Database
 from app.database.repositories.card_repository import CardRepository
 from app.database.repositories.collection_repository import CollectionRepository
 from app.database.repositories.price_repository import PriceRepository
+from app.database.repositories.sealed_price_repository import SealedPriceRepository
 from app.database.repositories.sealed_product_repository import SealedProductRepository
 from app.models.card import Card
 from app.models.enums import Condition, Language, PriceQuality
 from app.models.price import PriceRecord
+from app.models.sealed_price import SealedPriceRecord
 from app.models.sealed_product import SealedProduct
 from app.services.card_service import CardService
 from app.services.collection_service import CollectionService
 from app.services.sealed_product_service import SealedProductService
-from app.services.statistics_service import STALE_PRICE_THRESHOLD_DAYS, StatisticsService
+from app.services.statistics_service import (
+    STALE_PRICE_THRESHOLD_DAYS,
+    StatisticsService,
+    value_over_time,
+)
 
 _FIXED_NOW = datetime(2026, 7, 4, tzinfo=timezone.utc)
 
@@ -50,6 +56,7 @@ def service(temp_db: Database) -> StatisticsService:
         CollectionService(CollectionRepository(temp_db)),
         PriceRepository(temp_db),
         SealedProductService(SealedProductRepository(temp_db)),
+        SealedPriceRepository(temp_db),
         now=lambda: _FIXED_NOW,
     )
 
@@ -100,6 +107,7 @@ def test_compute_overview_with_no_cards_at_all(service: StatisticsService) -> No
     assert overview.value_by_sealed_category == []
     assert overview.most_expensive_sealed_products == []
     assert overview.sealed_stale_price_products == []
+    assert overview.value_over_time == []
 
 
 def test_per_collection_totals_and_grand_total(
@@ -386,3 +394,78 @@ def test_sealed_stale_price_products_includes_never_priced_first(
 
     names = [entry.product.name for entry in overview.sealed_stale_price_products]
     assert names == ["NeverPriced", "VeryStale"]
+
+
+def _record(card_id: int, price: float, recorded_at: str) -> PriceRecord:
+    return PriceRecord(id=None, card_id=card_id, price=price, recorded_at=recorded_at)
+
+
+def _sealed_record(sealed_product_id: int, price: float, recorded_at: str) -> SealedPriceRecord:
+    return SealedPriceRecord(
+        id=None, sealed_product_id=sealed_product_id, price=price, recorded_at=recorded_at
+    )
+
+
+def test_value_over_time_is_a_running_total_forward_filled_per_item() -> None:
+    xatu = Card(id=1, collection_id=1, name="Xatu", quantity=2)
+    charizard = Card(id=2, collection_id=1, name="Charizard", quantity=1)
+    card_history = [
+        _record(xatu.id, price=10.0, recorded_at="2026-01-01T00:00:00+00:00"),
+        _record(charizard.id, price=5.0, recorded_at="2026-01-02T00:00:00+00:00"),
+        _record(xatu.id, price=12.0, recorded_at="2026-01-03T00:00:00+00:00"),
+    ]
+
+    points = value_over_time([xatu, charizard], [], card_history, [])
+
+    assert [(p.recorded_at, p.total_value) for p in points] == [
+        ("2026-01-01T00:00:00+00:00", 20.0),  # 10 * 2 qty
+        ("2026-01-02T00:00:00+00:00", 25.0),  # + 5 * 1 qty
+        ("2026-01-03T00:00:00+00:00", 29.0),  # xatu 10->12: 24 + 5
+    ]
+
+
+def test_value_over_time_combines_cards_and_sealed_products() -> None:
+    card = Card(id=1, collection_id=1, name="Xatu", quantity=1)
+    product = SealedProduct(id=1, name="Booster Box", quantity=1)
+    card_history = [_record(card.id, price=10.0, recorded_at="2026-01-01T00:00:00+00:00")]
+    sealed_history = [_sealed_record(product.id, price=50.0, recorded_at="2026-01-02T00:00:00+00:00")]
+
+    points = value_over_time([card], [product], card_history, sealed_history)
+
+    assert [(p.recorded_at, p.total_value) for p in points] == [
+        ("2026-01-01T00:00:00+00:00", 10.0),
+        ("2026-01-02T00:00:00+00:00", 60.0),
+    ]
+
+
+def test_value_over_time_ignores_history_for_items_no_longer_owned() -> None:
+    card_history = [_record(card_id=999, price=10.0, recorded_at="2026-01-01T00:00:00+00:00")]
+
+    points = value_over_time([], [], card_history, [])
+
+    assert points == []
+
+
+def test_value_over_time_with_no_history_is_empty() -> None:
+    card = Card(id=1, collection_id=1, name="Xatu", quantity=1)
+
+    assert value_over_time([card], [], [], []) == []
+
+
+def test_compute_overview_populates_value_over_time(
+    service: StatisticsService,
+    cards: CardRepository,
+    collections: CollectionRepository,
+    prices: PriceRepository,
+) -> None:
+    binder = collections.create("Binder")
+    card = cards.create(_card(binder.id, name="Xatu", quantity=1))
+    prices.add_record(_record(card.id, price=10.0, recorded_at="2026-01-01T00:00:00+00:00"))
+    prices.add_record(_record(card.id, price=15.0, recorded_at="2026-01-02T00:00:00+00:00"))
+
+    overview = service.compute_overview()
+
+    assert [(p.recorded_at, p.total_value) for p in overview.value_over_time] == [
+        ("2026-01-01T00:00:00+00:00", 10.0),
+        ("2026-01-02T00:00:00+00:00", 15.0),
+    ]

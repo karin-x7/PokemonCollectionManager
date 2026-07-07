@@ -16,7 +16,9 @@ from __future__ import annotations
 
 from functools import partial
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCharts import QChart, QChartView, QDateTimeAxis, QLineSeries, QValueAxis
+from PySide6.QtCore import QDateTime, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
@@ -36,8 +38,10 @@ from app.services.statistics_service import (
     StalePriceEntry,
     StatisticsOverview,
     ValueBreakdownEntry,
+    ValueOverTimePoint,
 )
 from app.ui.set_icon_provider import get_set_icon
+from app.ui.theme import PALETTE
 from app.utils.time import format_display_datetime
 
 #: Wide enough for the "Preis aktualisieren" button's bold, padded label to
@@ -145,6 +149,7 @@ class StatisticsPanel(QWidget):
         layout.addWidget(header)
 
         self._build_portfolio_overview(layout)
+        self._build_value_over_time_section(layout)
         self._build_cards_section(layout)
         self._build_sealed_section(layout)
 
@@ -190,6 +195,25 @@ class StatisticsPanel(QWidget):
         card_layout.addWidget(subtext_label)
 
         return card, value_label, subtext_label
+
+    def _build_value_over_time_section(self, layout: QVBoxLayout) -> None:
+        layout.addWidget(self._section_label("Combined value over time"))
+
+        self._value_chart_placeholder = QLabel(
+            "Not enough price history yet -- update a few prices over time to see a trend here."
+        )
+        self._value_chart_placeholder.setObjectName("EmptyState")
+        self._value_chart_placeholder.setWordWrap(True)
+        layout.addWidget(self._value_chart_placeholder)
+
+        self._value_chart = QChart()
+        self._value_chart.legend().hide()
+        self._value_chart.setBackgroundVisible(False)
+        self._value_chart_view = QChartView(self._value_chart)
+        self._value_chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self._value_chart_view.setMinimumHeight(280)
+        self._value_chart_view.hide()
+        layout.addWidget(self._value_chart_view)
 
     def _build_cards_section(self, layout: QVBoxLayout) -> None:
         layout.addWidget(self._super_section_label(tr("Karten")))
@@ -350,6 +374,7 @@ class StatisticsPanel(QWidget):
     def show_overview(self, overview: StatisticsOverview) -> None:
         """Populate every section from a freshly computed overview."""
         self._fill_portfolio_overview(overview)
+        self._fill_value_over_time(overview.value_over_time)
 
         self._fill_collection_table(overview)
         self._grand_total_label.setText(
@@ -393,6 +418,51 @@ class StatisticsPanel(QWidget):
                 count=overview.sealed_item_count, as_of=_formatted_as_of(overview.sealed_as_of)
             )
         )
+
+    def _fill_value_over_time(self, points: list[ValueOverTimePoint]) -> None:
+        self._value_chart.removeAllSeries()
+        for axis in list(self._value_chart.axes()):
+            self._value_chart.removeAxis(axis)
+
+        if len(points) < 2:
+            self._value_chart_view.hide()
+            self._value_chart_placeholder.show()
+            return
+        self._value_chart_placeholder.hide()
+
+        accent = QColor(PALETTE.accent)
+        label_font = QFont()
+        label_font.setPointSize(9)
+
+        series = QLineSeries()
+        series.setPen(QPen(accent, 3))
+        series.setPointsVisible(True)
+        for point in points:
+            timestamp = QDateTime.fromString(point.recorded_at, Qt.DateFormat.ISODate)
+            series.append(timestamp.toMSecsSinceEpoch(), point.total_value)
+        self._value_chart.addSeries(series)
+
+        axis_x = QDateTimeAxis()
+        axis_x.setFormat("dd.MM.")
+        axis_x.setTitleText(tr("Datum"))
+        axis_x.setLabelsFont(label_font)
+        axis_x.setLabelsAngle(-45)
+        axis_x.setLabelsColor(QColor(PALETTE.muted))
+        axis_x.setGridLineColor(QColor(PALETTE.border))
+        axis_x.setTickCount(min(len(points), 6))
+        self._value_chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
+        series.attachAxis(axis_x)
+
+        axis_y = QValueAxis()
+        axis_y.setLabelFormat("%.2f")
+        axis_y.setTitleText(tr("Preis (€)"))
+        axis_y.setLabelsFont(label_font)
+        axis_y.setLabelsColor(QColor(PALETTE.muted))
+        axis_y.setGridLineColor(QColor(PALETTE.border))
+        self._value_chart.addAxis(axis_y, Qt.AlignmentFlag.AlignLeft)
+        series.attachAxis(axis_y)
+
+        self._value_chart_view.show()
 
     def _on_stale_header_clicked(self, column: int) -> None:
         if column == 3:  # Aktion -- a button, nothing to sort by

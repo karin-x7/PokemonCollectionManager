@@ -251,11 +251,18 @@ class PriceService:
             if real_url != cardmarket_url:
                 self._cards.update_cardmarket_url(card.id, real_url)
 
-        price, quality, rationale = self._determine_price(card, real_url)
+        price, quality, rationale = self.determine_price(card, real_url)
         return self._record(card, price, quality, rationale)
 
-    def _determine_price(self, card: Card, base_url: str) -> tuple[float | None, PriceQuality, str]:
+    def determine_price(self, card: Card, base_url: str) -> tuple[float | None, PriceQuality, str]:
         """Walk the matching ladder, one Cardmarket-filtered page per step.
+
+        Public (not just an internal step of ``update_price_for_card``):
+        :class:`~app.services.wantlist_service.WantlistService` reuses this
+        exact ladder for a not-yet-owned card too, via an ephemeral ``Card``
+        built from the wantlist entry's own fields -- duplicating this
+        logic would risk drifting out of sync with the various live-tuned
+        edge cases described below.
 
         A read that raises :class:`BrowserPriceReaderError` (tab/window
         problem, nothing parseable at all) aborts immediately with

@@ -6,6 +6,116 @@ Versionierung nach [SemVer](https://semver.org).
 
 ## [Unreleased]
 
+### Neu — Wantlist-Eintrag in eine Sammlung übernehmen
+- Rechtsklick auf einen Wantlist-Eintrag → "Add to collection": fragt nach
+  der Zielsammlung und legt die Karte dort als normal besessene Karte an
+  (gleicher Weg wie eine manuell per Cardmarket-Link eingetragene Karte,
+  inkl. übernommenem Link/Sprache/Zustand/Notizen) -- der Wantlist-Eintrag
+  verschwindet danach, ohne dass er von Hand gelöscht und die Karte separat
+  neu eingetragen werden muss.
+
+### Neu — Warnung beim Hinzufügen einer möglichen Doppel-Karte
+- Beim Hinzufügen einer Karte (per Katalogsuche oder manuell per
+  Cardmarket-Link) wird geprüft, ob bereits eine Karte mit exakt
+  gleichem Name/Set/Kartennummer/Sprache/Zustand/Extras existiert — egal
+  in welcher Sammlung. Falls ja, fragt ein Bestätigungsdialog nach, statt
+  stillschweigend eine zweite, identische Zeile anzulegen (für echte
+  Mehrfachexemplare bleibt "trotzdem hinzufügen" natürlich möglich).
+- Neue `CardService.find_duplicates()` -- reine Warnung, blockiert
+  nichts; die eigentliche Entscheidung bleibt beim Nutzer.
+
+### Neu — CSV/Excel/JSON-Import (Gegenstück zum Export)
+- Neue "Import"-Schaltfläche in der Toolbar, direkt neben "Export": liest
+  Karten oder Sealed-Produkte aus einer CSV-, Excel- oder JSON-Datei im
+  selben Spaltenlayout, das der eigene Export erzeugt — praktisch für ein
+  bearbeitetes Re-Import einer Export-Datei oder eine bereits gepflegte
+  eigene Tabelle. Kein PDF-Import: eine PDF ist ein gerenderter, nur in
+  eine Richtung sinnvoller Bericht, keine plausible Import-Quelle.
+- Importierte Einträge starten ohne Preis (wie beim manuellen Eintragen) —
+  Preis/Preisqualität/Datum aus einer Export-Datei würden sonst
+  fälschlich als "vom eigenen Programm ermittelt" erscheinen, obwohl der
+  Import selbst keine echte Preisermittlung ist.
+- Eine fehlerhafte einzelne Zeile (fehlender Name, unbekannte Sprache/
+  Zustand, ungültige Menge, fehlende Sammlung) wird übersprungen und in
+  der Ergebnis-Zusammenfassung aufgelistet, statt den ganzen Import
+  abzubrechen — eine echte Tabelle ist selten perfekt sauber.
+- Fehlende Sammlungen werden automatisch angelegt (Namensabgleich ohne
+  Groß-/Kleinschreibung), damit ein voller "Export, bearbeiten,
+  Re-Import"-Kreislauf funktioniert, ohne Sammlungen von Hand
+  wiederherzustellen.
+
+### Neu — Wantlist mit Preisalarm
+- Neuer "Wantlist"-Tab: Karten, die man noch nicht besitzt, mit Zielpreis,
+  Sprache und Zustand eintragen (per Cardmarket-Link, wie beim manuellen
+  Karten-Eintrag) -- Name/Set/Kartennummer werden automatisch aus der
+  Cardmarket-Seite gelesen, kein Katalog-Abgleich in dieser ersten Version.
+- "Check all prices"-Button prüft alle Einträge nacheinander (kein
+  Hintergrund-Polling, gleiches Ein-Klick-Muster wie das bestehende "Alle
+  aktualisieren") und markiert Einträge, deren aktueller Preis den
+  Zielpreis erreicht hat ("Below target!").
+- Preisermittlung nutzt intern dieselbe Cardmarket-Matching-Ladder wie
+  bereits besessene Karten (`PriceService.determine_price`, jetzt public) --
+  über eine nur-temporäre `Card`-Instanz, keine doppelt gepflegte Logik.
+- Migration 9: neue `wantlist_items`-Tabelle (globale Liste, nicht
+  sammlungsgebunden, wie Sealed-Produkte) -- ohne eigene Preisverlauf-
+  Tabelle, da es für noch nicht Besessenes keinen "Wert über Zeit" gibt.
+
+### Neu — Gesamtwert-Verlauf über Zeit (Statistik-Tab)
+- Neuer Graph im Statistik-Tab: Gesamtwert der ganzen Sammlung (Karten +
+  Sealed-Produkte) über Zeit, aggregiert aus den bereits vorhandenen
+  Preisverlauf-Tabellen (`price_history`/`sealed_price_history`) — reine
+  Auswertung bestehender Daten, keine neue Datenquelle.
+- Technisch eine Stufenfunktion: bei jedem Zeitpunkt, an dem sich
+  irgendeine Karte/Sealed-Produkt-Preis geändert hat, ist der Gesamtwert
+  die Summe aus dem jeweils zuletzt bekannten Preis jedes Items (nicht nur
+  der gerade aktualisierten) — multipliziert mit der *aktuellen* Menge, da
+  Mengenänderungen selbst nicht historisch nachverfolgt werden.
+- Neue `PriceRepository.list_all()`/`SealedPriceRepository.list_all()`
+  (bisher gab's nur Preisverlauf pro einzelner Karte/Produkt) für die
+  effiziente Ein-Abfrage-Aggregation über die ganze Sammlung.
+- Wird ausgeblendet (Platzhaltertext statt Graph), solange weniger als
+  zwei Preis-Datenpunkte insgesamt vorliegen.
+
+### Neu — Backup wiederherstellen über die UI
+- Neuer "Restore from backup…"-Button unter "Infos und Einstellungen":
+  listet vorhandene automatische Backups (Zeitpunkt, Dateigröße) und
+  stellt ein ausgewähltes wieder her.
+- Sicherheitsnetz: vor dem eigentlichen Restore wird der aktuelle Stand
+  selbst nochmal gesichert (unabhängig vom üblichen 24h-Minimalabstand),
+  damit ein versehentlicher Restore selbst wieder rückgängig gemacht
+  werden kann.
+- Kopiert erst in eine temporäre Datei und tauscht dann atomar um, statt
+  die echte Datenbankdatei direkt zu überschreiben -- ein Fehler mitten im
+  Kopiervorgang (Speicherplatz, Rechte, …) kann die Datenbank so nicht
+  halb überschrieben zurücklassen.
+- Da die laufende Datenbankverbindung (und alles, was darauf aufbaut) den
+  Dateitausch nicht "live" mitbekommt, schließt die App sich nach einem
+  erfolgreichen Restore selbst -- ein manueller Neustart zeigt dann den
+  wiederhergestellten Stand.
+
+### Geändert — Schwelle für veraltete Preise: 2 Monate -> 1 Monat
+- `STALE_PRICE_THRESHOLD_DAYS` (zentrale Definition in
+  `statistics_service.py`, von dort für Karten und Sealed-Produkte
+  gleichermaßen wiederverwendet — Statistik-Tab, "!"-Hinweis in den
+  Listen, Help-Text) auf 30 Tage gesenkt.
+
+### Neu — Hinweis auf neue Version verfügbar
+- Beim Start wird (nur im echten Programmstart, nicht in Tests) im
+  Hintergrund geprüft, ob auf GitHub ein neueres Release existiert als
+  die laufende Version. Falls ja, erscheint ein klickbarer Link dauerhaft
+  rechts in der Statusleiste — kein automatischer Download/Install, nur
+  ein Hinweis.
+- Best-effort: kein Internet, GitHub-Rate-Limit o. Ä. wird wie "kein
+  Update gefunden" behandelt, nie als Fehler angezeigt.
+
+### Geändert — data/ und logs/ liegen bei der .exe in einem eigenen Unterordner
+- Bisher legte die `.exe` `data/` und `logs/` direkt neben sich selbst an
+  — bei einer `.exe` z. B. direkt auf dem Desktop wären das zwei lose
+  Ordner mitten dazwischen gewesen. Beide liegen jetzt stattdessen in
+  einem gemeinsamen `PokemonCollectionManager/`-Unterordner neben der
+  `.exe`. Betrifft nur den gepackten `.exe`-Fall; ein Quellcode-Checkout
+  bleibt unverändert (`data/`/`logs/` weiterhin direkt im Projektordner).
+
 ### Behoben — Uneinheitliche Zeilenhöhen in der Kartentabelle
 - Live-reportiert: die Zeilen in der Kartentabelle waren unterschiedlich
   hoch. Ursache: `resizeRowsToContents()` bemaß jede Zeile nach ihrem

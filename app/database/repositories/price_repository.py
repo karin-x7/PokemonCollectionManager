@@ -70,6 +70,19 @@ class PriceRepository:
         ).fetchall()
         return [_row_to_record(row) for row in rows]
 
+    def list_all(self) -> list[PriceRecord]:
+        """Every card's price history, across the whole collection, oldest first.
+
+        Used to build the combined "collection value over time" chart (see
+        ``app.services.statistics_service.value_over_time``) -- fetching
+        everything in one query instead of one ``list_for_card`` call per
+        card.
+        """
+        rows = self._conn.execute(
+            "SELECT * FROM price_history ORDER BY recorded_at ASC, id ASC"
+        ).fetchall()
+        return [_row_to_record(row) for row in rows]
+
     def delete_for_card(self, card_id: int) -> None:
         """Delete every price history entry for a card. Irreversible."""
         with self._conn:

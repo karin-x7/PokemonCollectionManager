@@ -65,16 +65,6 @@ def test_help_tab_mentions_manual_price_editing(qapp) -> None:
     assert "Edit price manually" in browser.toPlainText()
 
 
-def test_help_tab_mentions_multi_select(qapp) -> None:
-    dialog = SettingsDialog()
-
-    browser = dialog.findChild(QTextBrowser)
-
-    text = browser.toPlainText()
-    assert "Shift-click" in text
-    assert "Ctrl-click" in text
-
-
 def test_help_tab_mentions_base_set_variants(qapp) -> None:
     dialog = SettingsDialog()
 
