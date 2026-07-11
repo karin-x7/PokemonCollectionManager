@@ -36,7 +36,7 @@ class FakeService:
         self._error = error
         self.queries: list[str] = []
 
-    def search(self, query: str):
+    def search(self, query: str, is_cancelled=None):
         self.queries.append(query)
         if self._error is not None:
             raise self._error
@@ -95,3 +95,51 @@ def test_unexpected_exception_emits_failed_not_a_crash(qapp) -> None:
 
     assert len(failed) == 1
     assert "boom" in failed[0]
+
+
+def test_run_passes_its_own_interruption_check_to_the_service(qapp) -> None:
+    class RecordingService:
+        def __init__(self) -> None:
+            self.is_cancelled_seen = None
+
+        def search(self, query: str, is_cancelled=None):
+            self.is_cancelled_seen = is_cancelled
+            return []
+
+    service = RecordingService()
+    worker = CatalogSearchWorker(service, "xatu")
+
+    worker.run()
+
+    assert service.is_cancelled_seen == worker.isInterruptionRequested
+
+
+def test_succeeded_is_not_emitted_once_interruption_was_requested(qapp) -> None:
+    # Real scenario: the results dialog was already closed (see
+    # CatalogSearchController._on_dialog_finished) while the search was
+    # still running -- nothing is listening for a late result anymore.
+    # ``isInterruptionRequested`` is monkeypatched directly (rather than
+    # calling the real ``requestInterruption()``) since Qt only honours that
+    # flag while the QThread is actually running -- irrelevant here, this
+    # test is only about ``run()``'s own post-search check.
+    service = FakeService(results=[_XATU])
+    worker = CatalogSearchWorker(service, "xatu")
+    worker.isInterruptionRequested = lambda: True
+    succeeded = []
+    worker.succeeded.connect(succeeded.append)
+
+    worker.run()
+
+    assert succeeded == []
+
+
+def test_failed_is_not_emitted_once_interruption_was_requested(qapp) -> None:
+    service = FakeService(error=CatalogSearchError("Katalog nicht erreichbar."))
+    worker = CatalogSearchWorker(service, "xatu")
+    worker.isInterruptionRequested = lambda: True
+    failed = []
+    worker.failed.connect(failed.append)
+
+    worker.run()
+
+    assert failed == []

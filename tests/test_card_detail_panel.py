@@ -7,9 +7,10 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtWidgets import QLabel
 
 from app.models.card import Card
-from app.models.enums import Condition, Language
+from app.models.enums import Condition, Language, PriceQuality
 from app.ui.app import build_application
 from app.ui.widgets.card_detail_panel import CardDetailPanel
 
@@ -67,6 +68,16 @@ def test_show_card_with_non_reverse_variant_passes_false(
     panel.show_card(_card(is_reverse_holo=False))
 
     assert calls == [False]
+
+
+def test_field_labels_are_all_translated_to_english(panel: CardDetailPanel) -> None:
+    # Real, live-reported bug: the "Sprache" field label had no matching
+    # bare (no-colon) entry in the translation table (only "Sprache:", used
+    # by a different dialog) -- tr()'s "no entry -> return input unchanged"
+    # fallback silently left it as German in an otherwise all-English panel.
+    label_texts = {label.text() for label in panel.findChildren(QLabel)}
+    assert "Language:" in label_texts
+    assert "Sprache:" not in label_texts
 
 
 def test_extras_field_lists_active_flags(panel: CardDetailPanel) -> None:
@@ -160,3 +171,42 @@ def test_set_price_lookup_running_disables_and_restores_button(panel: CardDetail
 
     panel.set_price_lookup_running(False)
     assert panel._price_button.isEnabled()
+
+
+def test_artwork_position_is_unaffected_by_price_quality_text_length(
+    qapp, panel: CardDetailPanel
+) -> None:
+    # Live-reported bug: on a panel taller than its content needed, the
+    # header (the only non-fixed widget above the artwork) absorbed the
+    # leftover vertical space -- and *how much* leftover space there was
+    # depended on how many lines the "Price quality" rationale wrapped to,
+    # so the artwork's position visibly shifted between cards even though
+    # its own size stayed fixed. A trailing stretch should now claim that
+    # leftover space instead, keeping the artwork's position constant.
+    panel.show()
+    panel.resize(300, 900)
+    for _ in range(5):
+        qapp.processEvents()
+
+    panel.show_card(_card(price_rationale="Japanese, Near Mint."))
+    for _ in range(5):
+        qapp.processEvents()
+    short_rationale_y = panel._artwork.geometry().y()
+
+    panel.show_card(
+        _card(
+            id=2,
+            price_quality=PriceQuality.ESTIMATED_FROM_CONDITION,
+            price_rationale=(
+                "Estimated from a different condition and language: English, "
+                "Excellent instead of Japanese, Near Mint, because no matching "
+                "offer was found."
+            ),
+        )
+    )
+    for _ in range(5):
+        qapp.processEvents()
+    long_rationale_y = panel._artwork.geometry().y()
+
+    assert short_rationale_y == long_rationale_y
+    panel.close()

@@ -68,7 +68,12 @@ class ManualEntryController(QObject):
             return
 
         self._url = url
-        self._main_window.statusBar().showMessage(tr("Cardmarket-Seite wird gelesen…"))
+        status_message = tr("Cardmarket-Seite wird gelesen…")
+        self._main_window.statusBar().showMessage(status_message)
+        # A status-bar message alone is easy to miss (the read itself can
+        # take several seconds) -- mirrors PriceController's own busy overlay
+        # for price lookups, the same underlying browser-automation wait.
+        self._main_window.busy_overlay.show_busy(status_message)
         self._worker = ProductInfoWorker(url, self._pokemontcg, parent=self)
         self._worker.succeeded.connect(self._on_succeeded)
         self._worker.failed.connect(self._on_failed)
@@ -83,5 +88,6 @@ class ManualEntryController(QObject):
         self._main_window.statusBar().showMessage(message, 5000)
 
     def _cleanup(self) -> None:
+        self._main_window.busy_overlay.hide_busy()
         self._worker = None
         self._url = None

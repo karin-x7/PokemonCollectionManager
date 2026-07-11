@@ -15,7 +15,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QDialog, QMainWindow
+from PySide6.QtWidgets import QDialog, QMainWindow, QMessageBox
 
 from app.database.connection import Database
 from app.database.repositories.card_repository import CardRepository
@@ -64,6 +64,16 @@ def synchronous_workers(monkeypatch):
     monkeypatch.setattr(CardmarketSearchResolveWorker, "start", fake_start)
 
 
+@pytest.fixture(autouse=True)
+def auto_confirm_save(monkeypatch):
+    """The final "save this link?" confirmation defaults to Yes -- tests
+
+    that want to exercise a decline override this per-test."""
+    monkeypatch.setattr(
+        QMessageBox, "question", lambda *a, **kw: QMessageBox.StandardButton.Yes
+    )
+
+
 @pytest.fixture
 def collection_id(temp_db: Database) -> int:
     return CollectionRepository(temp_db).create("Binder").id
@@ -102,7 +112,11 @@ def controller(
     main_window: QMainWindow, card_service: CardService, card_controller: CardController
 ) -> CardmarketSearchController:
     return CardmarketSearchController(
-        main_window, card_controller._detail_panel, card_service, card_controller
+        main_window,
+        card_controller._detail_panel,
+        card_service,
+        card_controller,
+        list_panel=card_controller._panel,
     )
 
 
@@ -135,6 +149,88 @@ def test_full_flow_persists_the_resolved_url_and_refreshes(
 
     card = card_service.get_card(card_id)
     assert card.manual_cardmarket_url == _URL
+
+
+def test_declining_the_save_confirmation_does_not_persist_the_url(
+    monkeypatch, controller: CardmarketSearchController, card_service: CardService, card_id: int
+) -> None:
+    # The confirmation added after the results dialog's own "Übernehmen" only
+    # confirms *which candidate* to resolve -- this is a separate, final
+    # check before the just-discovered URL is actually saved.
+    monkeypatch.setattr(
+        "app.ui.workers.cardmarket_search_worker.search_cardmarket",
+        lambda name: [_RESULT],
+    )
+    monkeypatch.setattr(
+        "app.ui.workers.cardmarket_search_resolve_worker.resolve_cardmarket_search_result",
+        lambda name, chosen: _URL,
+    )
+    monkeypatch.setattr(CardmarketSearchResultsDialog, "exec", _auto_confirm(_RESULT))
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **kw: QMessageBox.StandardButton.No)
+
+    controller.start(card_id)
+
+    card = card_service.get_card(card_id)
+    assert card.manual_cardmarket_url is None
+
+
+def test_list_panel_cardmarket_search_requested_starts_the_flow(
+    monkeypatch,
+    main_window: QMainWindow,
+    card_service: CardService,
+    card_controller: CardController,
+    card_id: int,
+) -> None:
+    # "Fix Cardmarket-Link" context-menu action in the card list, wired to
+    # the exact same flow the detail-panel button already offers.
+    controller = CardmarketSearchController(
+        main_window,
+        card_controller._detail_panel,
+        card_service,
+        card_controller,
+        list_panel=card_controller._panel,
+    )
+    monkeypatch.setattr(
+        "app.ui.workers.cardmarket_search_worker.search_cardmarket",
+        lambda name: [_RESULT],
+    )
+    monkeypatch.setattr(
+        "app.ui.workers.cardmarket_search_resolve_worker.resolve_cardmarket_search_result",
+        lambda name, chosen: _URL,
+    )
+    monkeypatch.setattr(CardmarketSearchResultsDialog, "exec", _auto_confirm(_RESULT))
+
+    card_controller._panel.cardmarket_search_requested.emit(card_id)
+
+    card = card_service.get_card(card_id)
+    assert card.manual_cardmarket_url == _URL
+
+
+def test_manual_search_requested_opens_cardmarket_search_for_the_card_name(
+    monkeypatch, controller: CardmarketSearchController, card_id: int
+) -> None:
+    # Empty-state fallback: the automated search found nothing, so the user
+    # can search Cardmarket themselves in a real browser window instead.
+    monkeypatch.setattr(
+        "app.ui.workers.cardmarket_search_worker.search_cardmarket",
+        lambda name: [],
+    )
+    opened: list[str] = []
+    monkeypatch.setattr(
+        "app.ui.controllers.cardmarket_search_controller.open_cardmarket_search",
+        opened.append,
+    )
+    dialog = CardmarketSearchResultsDialog()
+
+    def fake_exec(self):
+        self.manual_search_requested.emit()
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(CardmarketSearchResultsDialog, "exec", fake_exec)
+
+    controller.start(card_id)
+
+    assert opened == ["Poké Pad"]
 
 
 def test_cancelling_the_results_dialog_does_not_persist_anything(

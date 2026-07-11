@@ -50,13 +50,15 @@ def test_add_item_rewrites_url_with_language_filter(service: WantlistService) ->
     assert item.cardmarket_url == f"{_URL}?language=3"
 
 
-def test_add_item_leaves_japanese_url_unfiltered(service: WantlistService) -> None:
-    # Unlike sealed products, a single card's Japanese/Korean/Chinese print
-    # is an entirely separate Cardmarket product, not a filter on the same
-    # page -- see supports_language_filter's own docstring.
+def test_add_item_applies_the_language_filter_for_japanese_too(
+    service: WantlistService,
+) -> None:
+    # Live-reported correction: Cardmarket's own ?language= filter works for
+    # Japanese/Korean/Chinese too on a single card's page, same as any other
+    # language -- see supports_language_filter's own docstring.
     item = service.add_item("Pikachu", "Base Set", "58", _values(language=Language.JAPANESE))
 
-    assert item.cardmarket_url == _URL
+    assert item.cardmarket_url == f"{_URL}?language=7"
 
 
 def test_add_item_rejects_non_positive_target_price(service: WantlistService) -> None:

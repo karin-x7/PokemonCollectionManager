@@ -184,6 +184,14 @@ class CardListPanel(QWidget):
     #: von Cardmarket abrufen" button, which reads and closes the tab
     #: automatically: this leaves the tab open for the user to browse.
     open_cardmarket_link_requested = Signal(int)
+    #: Emitted with a card id when "Fix Cardmarket link" is chosen from the
+    #: context menu -- same action, same signal name, as the "Cardmarket-Link
+    #: suchen" button already offers in the card detail panel (see
+    #: ``CardDetailPanel.cardmarket_search_requested``); only offered for a
+    #: single selected row, same reasoning as "Bearbeiten". Live-reported
+    #: request: this was previously only reachable via the detail panel, one
+    #: card at a time, with no context-menu shortcut from the list itself.
+    cardmarket_search_requested = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -360,6 +368,15 @@ class CardListPanel(QWidget):
         record -- editable, so the user can correct them before saving. The
         link itself is prefilled into "Eigener Cardmarket-Link" so price
         lookups use exactly the page the user pasted.
+
+        The language dropdown starts on ``info.detected_language`` (the most
+        common language among the page's own offer rows) rather than always
+        defaulting to English -- a real user reported this always silently
+        defaulting to English regardless of what was actually pasted (this
+        flow's whole purpose is JP/KO/ZH/vintage prints), which then
+        mis-filtered later price lookups. Still just a starting point, fully
+        editable, and falls back to English if no offers could be parsed at
+        all (e.g. currently out of stock).
         """
         dialog = CardDetailsDialog(
             title=tr("Karte manuell eintragen"),
@@ -368,7 +385,7 @@ class CardListPanel(QWidget):
             display_set=info.set_name,
             display_number=info.card_number,
             initial=CardDetailsValues(
-                language=Language.ENGLISH,
+                language=info.detected_language or Language.ENGLISH,
                 condition=Condition.NEAR_MINT,
                 quantity=1,
                 notes="",
@@ -445,6 +462,12 @@ class CardListPanel(QWidget):
                 is_altered=card.is_altered,
                 quantity=card.quantity,
                 notes=card.notes,
+                # Live-reported bug: missing here, this silently wiped the
+                # card's own Cardmarket-link override on every edit (the
+                # dialog's field always started empty, so saving wrote back
+                # None) -- breaking price lookups for any manually-added
+                # card the very next time it was edited.
+                manual_cardmarket_url=card.manual_cardmarket_url,
             ),
             parent=self,
         )
@@ -509,6 +532,9 @@ class CardListPanel(QWidget):
         open_link_action = (
             menu.addAction(tr("Cardmarket-Link öffnen")) if len(ids) == 1 else None
         )
+        fix_link_action = (
+            menu.addAction(tr("Fix Cardmarket-Link")) if len(ids) == 1 else None
+        )
         move_action = menu.addAction(tr("Verschieben"))
         delete_action = menu.addAction(tr("Löschen"))
         chosen = menu.exec(self._table.viewport().mapToGlobal(position))
@@ -518,6 +544,8 @@ class CardListPanel(QWidget):
             self._prompt_edit_price(row)
         elif open_link_action is not None and chosen is open_link_action:
             self.open_cardmarket_link_requested.emit(ids[0])
+        elif fix_link_action is not None and chosen is fix_link_action:
+            self.cardmarket_search_requested.emit(ids[0])
         elif chosen is move_action:
             self.move_requested.emit(ids)
         elif chosen is delete_action:

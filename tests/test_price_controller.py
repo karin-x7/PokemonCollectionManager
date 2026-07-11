@@ -176,7 +176,7 @@ def test_bulk_update_looks_up_every_card_in_order_and_refreshes_each_time(
 
     assert service.calls == [1, 2, 3]
     assert card_controller.refresh_calls == 3
-    assert "aktualisiert" in main_window.statusBar().currentMessage()
+    assert "updated" in main_window.statusBar().currentMessage()
 
 
 def test_bulk_update_toggles_statistics_controller_running_state(

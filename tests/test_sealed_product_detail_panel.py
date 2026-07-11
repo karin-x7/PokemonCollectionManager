@@ -12,7 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-from app.models.enums import Language
+from app.models.enums import Language, PriceQuality
 from app.models.sealed_product import SealedProduct
 from app.ui.app import build_application
 from app.ui.widgets.sealed_product_detail_panel import SealedProductDetailPanel
@@ -150,3 +150,37 @@ def test_set_price_lookup_running_disables_and_restores_button(
 
     panel.set_price_lookup_running(False)
     assert panel._price_button.isEnabled()
+
+
+def test_artwork_position_is_unaffected_by_price_quality_text_length(
+    qapp, panel: SealedProductDetailPanel
+) -> None:
+    # Mirrors test_card_detail_panel.py's identical regression test -- see
+    # there for the full root-cause explanation.
+    panel.show()
+    panel.resize(300, 900)
+    for _ in range(5):
+        qapp.processEvents()
+
+    panel.show_product(_product(price_rationale="Japanese, Near Mint."))
+    for _ in range(5):
+        qapp.processEvents()
+    short_rationale_y = panel._artwork.geometry().y()
+
+    panel.show_product(
+        _product(
+            id=2,
+            price_quality=PriceQuality.ESTIMATED_FROM_CONDITION,
+            price_rationale=(
+                "Estimated from a different condition and language: English, "
+                "Excellent instead of Japanese, Near Mint, because no matching "
+                "offer was found."
+            ),
+        )
+    )
+    for _ in range(5):
+        qapp.processEvents()
+    long_rationale_y = panel._artwork.geometry().y()
+
+    assert short_rationale_y == long_rationale_y
+    panel.close()

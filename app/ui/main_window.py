@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
 
         self._search = QLineEdit()
-        self._search.setPlaceholderText(tr("Karten durchsuchen  (z. B. „xatu skyridge holo“)"))
+        self._search.setPlaceholderText(tr("Karten durchsuchen  (z. B. „Light Jolteon“)"))
         self._search.setClearButtonEnabled(True)
         # A fixed width (not just a maximum): QLineEdit's default SizePolicy
         # is Expanding, which stretched it to fill whatever space a trailing
@@ -198,8 +198,10 @@ class MainWindow(QMainWindow):
         # available -- competing with that stretch for the same leftover
         # space shrank it down to a sliver instead of its intended width
         # (live-confirmed via screenshot). A fixed width sidesteps the
-        # competition entirely, matching the buttons beside it.
-        self._search.setFixedWidth(420)
+        # competition entirely, matching the buttons beside it. Widened from
+        # 420 -- live-reported as still feeling cramped for a realistic
+        # query plus the placeholder's own example text.
+        self._search.setFixedWidth(520)
         self._search.returnPressed.connect(self._submit_search)
 
         self._search_button = QPushButton(tr("Suchen"))
@@ -396,7 +398,12 @@ class MainWindow(QMainWindow):
         )
 
         self.cardmarket_search_controller = CardmarketSearchController(
-            self, self.card_detail_panel, card_service, self.card_controller, parent=self
+            self,
+            self.card_detail_panel,
+            card_service,
+            self.card_controller,
+            list_panel=self.card_list_panel,
+            parent=self,
         )
 
         def open_price_service() -> tuple[PriceService, Database]:

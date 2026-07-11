@@ -29,6 +29,17 @@ _CHEVRON_ICON_PATH = (
     .as_posix()
 )
 
+#: Same treatment as the combo-box chevron above, for QSpinBox's up/down
+#: step buttons -- live-reported as "barely visible": with no dedicated QSS
+#: rule at all, the native style drew its own default arrow glyph directly
+#: on the dark theme, with too little contrast to see clearly.
+_SPIN_UP_ICON_PATH = (
+    (Path(__file__).resolve().parent.parent / "resources" / "spin_up.png").as_posix()
+)
+_SPIN_DOWN_ICON_PATH = (
+    (Path(__file__).resolve().parent.parent / "resources" / "spin_down.png").as_posix()
+)
+
 
 @dataclass(frozen=True, slots=True)
 class Palette:
@@ -59,8 +70,10 @@ PALETTE = Palette(
     #: Input fields/comboboxes -- a touch darker than the panel behind them
     #: so they read as "recessed" (user request), instead of panel_raised's
     #: lighter shade (still used for artwork stages/stat tiles, which are
-    #: meant to look "raised" instead).
-    input_bg="#161c29",
+    #: meant to look "raised" instead). Nudged slightly lighter/bluer after
+    #: a follow-up request ("just a little") -- still darker than the panel
+    #: behind it, just less easy to lose track of.
+    input_bg="#1a202f",
     text="#e8ecf5",
     muted="#8b95ac",
     border="#2b3550",
@@ -324,6 +337,24 @@ def build_stylesheet() -> str:
     QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus {{
         border: 1px solid {p.accent};
     }}
+    /* Custom step-button glyphs (see _SPIN_UP_ICON_PATH/_SPIN_DOWN_ICON_PATH
+       above) -- the native ones were nearly invisible against this dark
+       theme with no styling of their own at all. */
+    QSpinBox::up-button, QSpinBox::down-button {{
+        border: none;
+        background: transparent;
+        width: 16px;
+    }}
+    QSpinBox::up-arrow {{
+        image: url({_SPIN_UP_ICON_PATH});
+        width: 10px;
+        height: 10px;
+    }}
+    QSpinBox::down-arrow {{
+        image: url({_SPIN_DOWN_ICON_PATH});
+        width: 10px;
+        height: 10px;
+    }}
     QComboBox {{
         background-color: {p.input_bg};
         color: {p.text};
@@ -371,6 +402,18 @@ def build_stylesheet() -> str:
        *parent* transparent -- the checkbox itself needed this too). */
     QCheckBox {{
         spacing: 8px;
+        background: transparent;
+    }}
+    /* Same root cause as QCheckBox above, this time on a bare, no-object-
+       name QLabel showing a set icon (live-reported: a visible dark box
+       tightly wrapping just the icon in the card detail panel, but not the
+       identical icon in the card table -- QTableWidgetItem's own icon
+       decoration never goes through this per-widget QWidget background at
+       all). Every existing ``QLabel#...`` rule below already repeats its
+       own "background: transparent" for exactly this reason; this general
+       rule covers any bare QLabel that isn't one of those named ones too,
+       instead of relying on each new one remembering to opt out by hand. */
+    QLabel {{
         background: transparent;
     }}
     QCheckBox::indicator {{

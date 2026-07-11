@@ -13,8 +13,23 @@ requests>=2.31,<3
 # navigates the browser, only reads what's already rendered on screen,
 # the same mechanism screen readers use. Pulls in pywin32 (win32gui), used
 # directly to identify the actual foreground window rather than scanning
-# every open window by title.
-pywinauto>=0.6.9,<0.7
+# every open window by title. Windows-only: app.pricing.browser dispatches
+# to a different backend per sys.platform (see app/pricing/browser/_macos.py
+# for the equivalent on macOS, using the Accessibility API instead).
+pywinauto>=0.6.9,<0.7 ; sys_platform == "win32"
+
+# macOS equivalent of the above: the Accessibility API (AXUIElement, via
+# ApplicationServices) reads Chrome's already-rendered window content the
+# same way VoiceOver does, Cocoa/AppKit (NSWorkspace/NSRunningApplication)
+# launches Chrome and re-activates this app afterwards, and Quartz provides
+# the window-content screenshot (sealed-product/manual-entry photo capture)
+# and the Cmd+W keystroke to close the opened tab. Requires the user to
+# grant this app Accessibility permission (System Settings > Privacy &
+# Security > Accessibility) the first time -- there is no way around that
+# prompt, it's how macOS gates this API for every app that uses it.
+pyobjc-framework-Cocoa>=10.0 ; sys_platform == "darwin"
+pyobjc-framework-ApplicationServices>=10.0 ; sys_platform == "darwin"
+pyobjc-framework-Quartz>=10.0 ; sys_platform == "darwin"
 
 # Excel (.xlsx) export — used from Step 11.
 openpyxl>=3.1,<4

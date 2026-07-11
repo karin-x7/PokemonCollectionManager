@@ -69,6 +69,17 @@ def test_show_photo_without_reverse_holo(qapp, sample_image_path) -> None:
     assert view._reverse_holo is False
 
 
+def test_height_is_fixed_not_a_min_max_range(qapp) -> None:
+    # Live-reported: the same card's artwork rendered visibly smaller
+    # whenever a sibling field (e.g. a long "Price quality" rationale
+    # wrapping to two lines) needed more vertical space, because this
+    # widget used to only have a min/max height range and was the layout's
+    # only stretchy element -- a fixed height makes it immune to that.
+    view = CardArtworkView()
+
+    assert view.minimumHeight() == view.maximumHeight()
+
+
 def test_paint_event_does_not_crash_in_any_state(qapp, sample_image_path) -> None:
     view = CardArtworkView()
     view.resize(200, 180)

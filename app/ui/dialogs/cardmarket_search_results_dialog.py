@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QProgressBar,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -41,6 +42,13 @@ class CardmarketSearchResultsDialog(DimmedDialog):
     #: Emitted with the selected CardmarketSearchResult when "Übernehmen" is
     #: clicked.
     result_confirmed = Signal(object)
+    #: Emitted when the empty-state "Search in browser" button is clicked --
+    #: the automated search found no candidates at all, so this is an inline
+    #: fallback to let the user search Cardmarket themselves in a real,
+    #: normal browser window instead of being left at a dead end. The dialog
+    #: itself stays open (the user can note the right product's URL, then
+    #: paste it via "Bearbeiten" once they close this).
+    manual_search_requested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -72,6 +80,13 @@ class CardmarketSearchResultsDialog(DimmedDialog):
         self._empty_label.hide()
         layout.addWidget(self._empty_label)
 
+        # Only shown alongside the empty state above -- a dead end otherwise
+        # (live-reported: no way forward besides cancelling and giving up).
+        self._manual_search_button = QPushButton(tr("In Cardmarket-Suche im Browser öffnen"))
+        self._manual_search_button.clicked.connect(self.manual_search_requested)
+        self._manual_search_button.hide()
+        layout.addWidget(self._manual_search_button)
+
         self._table = QTableWidget(0, len(columns))
         self._table.hide()
         self._table.setHorizontalHeaderLabels(columns)
@@ -101,6 +116,7 @@ class CardmarketSearchResultsDialog(DimmedDialog):
         self._loading_bar.hide()
         self._matches = matches
         self._empty_label.setVisible(not matches)
+        self._manual_search_button.setVisible(not matches)
         self._table.setVisible(bool(matches))
         self._table.setRowCount(len(matches))
         for row, result in enumerate(matches):

@@ -26,9 +26,16 @@ class SealedArtworkView(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setMinimumHeight(260)
         self.setMinimumWidth(200)
-        self.setMaximumHeight(420)
+        # A *fixed* height, not just a min/max range -- mirrors the identical
+        # fix in card_artwork_view.py: this widget sits in
+        # SealedProductDetailPanel's QVBoxLayout as its only ``stretch=1``
+        # element, so a min/max range let it silently grow or shrink based on
+        # how much vertical space its siblings needed (e.g. a longer "Price
+        # quality" rationale wrapping to two lines instead of one). 360px
+        # (live-reported) overlapped the form fields below it -- 260px
+        # matches this widget's old min-height floor, known to fit.
+        self.setFixedHeight(260)
         self._pixmap: QPixmap | None = None
 
     def show_empty(self) -> None:

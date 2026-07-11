@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import difflib
 import re
+from collections.abc import Callable
 from dataclasses import replace
 
 from app.catalog.models import CatalogCard, CatalogSet
-from app.catalog.name_translation import translate_to_english
+from app.catalog.name_translation import translate_name_with_suffix
 from app.catalog.pokemontcg_client import (
     PokemonTcgClient,
     PokemonTcgClientError,
@@ -84,26 +85,31 @@ _DEFAULT_MAX_RESULTS = 25
 _SHRINKING_PREFIX_LENGTHS = (6, 4, 3)
 
 
-def _translate_name_with_suffix(name: str) -> str | None:
-    """Translate a foreign species name even when followed by a card-type
+#: Card-name words that pokemontcg.io never spells out -- it stores the
+#: literal TCG symbol instead (live-confirmed: "Rayquaza δ" for a Delta
+#: Species print, "Rayquaza ★" for a Gold Star card; neither "Delta" nor
+#: "Gold Star"/"Star" ever appears as plain text in their data at all).
+#: Longest phrase first ("gold star" before "star") so "Jolteon Gold Star"
+#: doesn't leave a dangling, already-consumed "Gold" behind.
+_SYMBOL_SYNONYMS: dict[str, str] = {
+    "gold star": "★",
+    "star": "★",
+    "delta": "δ",
+}
 
-    suffix pokemontcg.io never translates (e.g. "Blitza VMAX" -> "Jolteon
-    VMAX", not just "Blitza" alone). ``translate_to_english`` only ever
-    matches a *whole* query against a single foreign species name -- a live
-    bug report found "Blitza VMAX" returning nothing at all, even though
-    "Blitza" alone translates fine, because normalising the combined query
-    collapses it to "blitzavmax", which isn't a key in the translation
-    table at all (only the bare species name is). Tried longest-to-shortest
-    so a genuinely multi-word foreign name (were one ever added) still gets
-    first refusal over assuming the last word is an untranslatable suffix.
+
+def _with_symbol_synonyms(name: str) -> str | None:
+    """``name`` with the first known word/phrase from :data:`_SYMBOL_SYNONYMS`
+
+    replaced by its literal pokemontcg.io symbol (e.g. "Rayquaza Delta" ->
+    "Rayquaza δ"), or ``None`` if none of them appear in it. Case-
+    insensitive; replaces only the first (and only expected) occurrence,
+    preserving the rest of ``name``'s own casing.
     """
-    tokens = name.split()
-    for split_point in range(len(tokens), 0, -1):
-        candidate = " ".join(tokens[:split_point])
-        translated = translate_to_english(candidate)
-        if translated and translated.casefold() != candidate.casefold():
-            suffix = " ".join(tokens[split_point:])
-            return f"{translated} {suffix}".strip()
+    for phrase, symbol in _SYMBOL_SYNONYMS.items():
+        match = re.search(re.escape(phrase), name, re.IGNORECASE)
+        if match:
+            return name[: match.start()] + symbol + name[match.end() :]
     return None
 
 
@@ -275,12 +281,25 @@ class CatalogSearchService:
         self._pokemontcg = pokemontcg_client
         self._max_results = max_results
 
-    def search(self, query: str) -> list[CatalogCard]:
+    def search(
+        self, query: str, is_cancelled: Callable[[], bool] | None = None
+    ) -> list[CatalogCard]:
         """Tolerant search over name/set/number/partial terms.
+
+        ``is_cancelled``, if given, is checked before every network call this
+        method makes (see :meth:`_safe_search`) -- a query with no exact
+        match can fan out into several sequential pokemontcg.io requests
+        (see :meth:`_search_name_tolerantly`), each of which can itself take
+        pokemontcg.io's own live-measured 20-45s; this lets a caller (see
+        ``app.ui.workers.catalog_search_worker.CatalogSearchWorker``) abandon
+        a search the user has already closed the results dialog for, rather
+        than silently continuing to fire off requests nobody is waiting on
+        anymore.
 
         Raises:
             CatalogSearchError: If the catalogue backend cannot be reached.
         """
+        cancelled = is_cancelled or (lambda: False)
         cleaned = (query or "").strip()
         if not cleaned:
             return []
@@ -292,22 +311,26 @@ class CatalogSearchService:
         set_id = catalog_set.id if catalog_set else None
         name = " ".join(tokens).strip() or None
 
-        results = self._safe_search(name=name, set_id=set_id, number=number)
+        results = self._safe_search(cancelled, name=name, set_id=set_id, number=number)
         if not results and number:
-            results = self._safe_search(name=name, set_id=set_id)
+            results = self._safe_search(cancelled, name=name, set_id=set_id)
         if not results and set_id:
-            results = self._safe_search(name=name)
+            results = self._safe_search(cancelled, name=name)
 
         if not results and name:
-            results = self._search_name_tolerantly(name, set_id, number)
+            results = self._search_name_tolerantly(cancelled, name, set_id, number)
 
         results = results[: self._max_results]
         return _expand_ambiguous_variants(results)
 
     def _search_name_tolerantly(
-        self, name: str, set_id: str | None, number: str | None
+        self,
+        is_cancelled: Callable[[], bool],
+        name: str,
+        set_id: str | None,
+        number: str | None,
     ) -> list[CatalogCard]:
-        """Three extra loosening tiers once an exact name search found nothing.
+        """Four extra loosening tiers once an exact name search found nothing.
 
         First, if ``name`` is a known foreign-language *species* name (e.g.
         "Turtok"), retry with its English equivalent (e.g. "Blastoise") --
@@ -316,38 +339,74 @@ class CatalogSearchService:
         covers foreign-language *Trainer/Item/Stadium* card names (e.g.
         "Lillys Entschlossenheit" -> "Lillie's Determination") -- the
         species table above has no equivalent for these since PokeAPI (its
-        source) knows nothing about them. Tried *before* the shrinking-
-        prefix tier below on purpose: a genuinely foreign-language name can
-        never match any English prefix there anyway, so running that tier
-        first would only add several pointless (and, if pokemontcg.io is
-        having a slow day, potentially very slow) round-trips before ever
-        reaching the one tier that could actually resolve it -- live-
-        reported by a user as the search taking "very long" while this tier
-        still sat last. Last, regardless of language, a shrinking-prefix
-        search (see :func:`_shrinking_name_candidates`) filtered
-        client-side by a loose, accent/punctuation-insensitive match
-        against the original name -- pokemontcg.io's own search doesn't
-        fold accents or hyphens (a live smoke test found "poképad" worked
-        but "pokepad"/"poke pad" didn't).
+        source) knows nothing about them. Third, a known TCG symbol word
+        (e.g. "Delta"/"Gold Star") is substituted for the literal symbol
+        pokemontcg.io actually stores (see :func:`_with_symbol_synonyms`).
+        Tried *before* the shrinking-prefix tier below on purpose: none of
+        these three can ever match any English prefix there anyway, so
+        running that tier first would only add several pointless (and, if
+        pokemontcg.io is having a slow day, potentially very slow)
+        round-trips before ever reaching the tier that could actually
+        resolve it -- live-reported by a user as the search taking "very
+        long" while the prefix tier still sat first.
+
+        Last, regardless of language/symbol, a shrinking-prefix search (see
+        :func:`_shrinking_name_candidates`) filtered client-side by a loose,
+        accent/punctuation-insensitive match -- pokemontcg.io's own search
+        doesn't fold accents (a live smoke test found "poképad" worked but
+        "pokepad"/"poke pad" didn't). Applied to *every* candidate collected
+        above, not just the original name: a live-reported gap found a
+        correctly translated candidate (e.g. "Nachtara GX" -> "Umbreon GX")
+        still needing this same loosening in some cases, which it never got
+        before this fix -- falling through to loosen only the original,
+        untranslated German name instead, which can never match an
+        English-only catalogue no matter how much it's shortened.
         """
-        translated = _translate_name_with_suffix(name)
+        # Each candidate is tried directly the moment it's computed, not
+        # gathered up front -- ``translate_foreign_card_name`` in particular
+        # is a live tcgdex.dev lookup, and must stay skipped entirely once
+        # an earlier candidate already succeeded (this ordering is itself
+        # covered by its own test).
+        candidates: list[str] = []
+
+        translated = translate_name_with_suffix(name)
         if translated and translated.casefold() != name.casefold():
-            results = self._safe_search(name=translated, set_id=set_id, number=number)
+            candidates.append(translated)
+            results = self._safe_search(is_cancelled, name=translated, set_id=set_id, number=number)
             if results:
                 return results
 
         foreign_card_name = translate_foreign_card_name(name)
         if foreign_card_name and foreign_card_name.casefold() != name.casefold():
-            results = self._safe_search(name=foreign_card_name, set_id=set_id, number=number)
+            candidates.append(foreign_card_name)
+            results = self._safe_search(
+                is_cancelled, name=foreign_card_name, set_id=set_id, number=number
+            )
             if results:
                 return results
 
-        target = normalize_for_search(name)
-        for candidate in _shrinking_name_candidates(name):
-            results = self._safe_search(name=candidate, set_id=set_id, number=number)
-            matches = [r for r in results if target in normalize_for_search(r.name)]
-            if matches:
-                return matches
+        symbol_substituted = _with_symbol_synonyms(name)
+        if symbol_substituted and symbol_substituted.casefold() != name.casefold():
+            candidates.append(symbol_substituted)
+            results = self._safe_search(
+                is_cancelled, name=symbol_substituted, set_id=set_id, number=number
+            )
+            if results:
+                return results
+
+        # Translated/symbol-substituted candidates first, the original,
+        # untranslated name last: a genuinely foreign word or literal TCG
+        # symbol can never match an English-only catalogue no matter how
+        # much it's shortened, so it's the least likely to pay off.
+        for search_name in [*candidates, name]:
+            target = normalize_for_search(search_name)
+            for shrink_candidate in _shrinking_name_candidates(search_name):
+                results = self._safe_search(
+                    is_cancelled, name=shrink_candidate, set_id=set_id, number=number
+                )
+                matches = [r for r in results if target in normalize_for_search(r.name)]
+                if matches:
+                    return matches
         return []
 
     def _safe_list_sets(self) -> list[CatalogSet]:
@@ -361,10 +420,16 @@ class CatalogSearchService:
 
     def _safe_search(
         self,
+        is_cancelled: Callable[[], bool],
         name: str | None = None,
         set_id: str | None = None,
         number: str | None = None,
     ) -> list[CatalogCard]:
+        """The single choke point every network call in this service goes
+        through -- checking ``is_cancelled`` here once covers every tier of
+        :meth:`search`/:meth:`_search_name_tolerantly` at once."""
+        if is_cancelled():
+            return []
         try:
             return self._pokemontcg.search(name=name, set_id=set_id, number=number)
         except PokemonTcgClientError as exc:

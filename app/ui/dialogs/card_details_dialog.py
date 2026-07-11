@@ -131,16 +131,17 @@ class CardDetailsDialog(DimmedDialog):
         self._manual_cardmarket_url_edit = QLineEdit()
         self._manual_cardmarket_url_edit.setPlaceholderText(
             tr(
-                "Nur nötig bei Japanisch/Koreanisch/Chinesisch: eigener Link zum "
-                "richtigen Cardmarket-Produkt"
+                "Nur nötig, wenn die automatische Zuordnung falsch ist: eigener "
+                "Link zum richtigen Cardmarket-Produkt"
             )
         )
         self._manual_cardmarket_url_edit.setToolTip(
             tr(
-                "Für Japanisch/Koreanisch/Chinesisch führt Cardmarket den Druck als "
-                "eigenständiges Produkt unter einem anderen Set-Namen -- die "
-                "automatische Zuordnung zeigt dort das falsche (westliche) Produkt. "
-                "Hier den korrekten Cardmarket-Link einfügen, um das zu beheben."
+                "Manche älteren Sets/Nachdrucke (z. B. bei Japanisch/Koreanisch/"
+                "Chinesisch) führt Cardmarket als eigenständiges Produkt unter "
+                "einem anderen Set-Namen -- die automatische Zuordnung zeigt dort "
+                "das falsche Produkt. Hier den korrekten Cardmarket-Link einfügen, "
+                "um das zu beheben."
             )
         )
         form.addRow(tr("Eigener Cardmarket-Link:"), self._manual_cardmarket_url_edit)

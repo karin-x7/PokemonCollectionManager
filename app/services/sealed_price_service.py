@@ -15,15 +15,13 @@ reads whatever that URL returns and matches language locally in Python as a
 second, redundant safety net -- harmless if the page was already filtered,
 still correct if it wasn't (e.g. an older product added before that fix).
 
-Unlike sealed products, single *cards* genuinely can have Japanese/
-Korean/Chinese prints as an entirely separate Cardmarket product with an
-unrelated set name (see ``price_service.py``), where falling back across
-languages would silently substitute a financially unrelated product's
-price. That risk doesn't apply here in the same way -- a sealed product's
-Japanese/Korean/Chinese offers live on the very same page as everything
-else -- but the "any language" fallback is still skipped for these three:
-if the (now correctly pre-filtered) page turns up no offers in the
-requested language, it means there are currently no sellers for that
+The "any language" fallback is still always skipped for Japanese/Korean/
+Chinese specifically (see ``app.pricing.cardmarket_parsing.
+is_market_divergent_language``), regardless of whether the page could be
+filtered: these print languages can have wildly different market prices
+for what Cardmarket otherwise treats as the same product, unlike German vs.
+English. If the (already language-filtered) page turns up no offers in the
+requested language, that means there are currently no sellers for that
 specific print language, not "close enough" -- e.g. a Japanese-exclusive
 box has no reason to track Korean pricing just because Korean happens to
 have sellers right now.
@@ -43,9 +41,9 @@ from app.models.sealed_product import SealedProduct
 from app.pricing.browser_price_reader import (
     BrowserPriceReaderError,
     build_sealed_filtered_url,
+    is_market_divergent_language,
     read_sealed_offers_for_card,
     sealed_supports_language_filter,
-    supports_language_filter,
 )
 from app.pricing.models import SealedOffer
 from app.services.exceptions import SealedProductNotFoundError
@@ -124,7 +122,7 @@ class SealedPriceService:
                 f"{product.language.label}.",
             )
 
-        if not supports_language_filter(product.language):
+        if is_market_divergent_language(product.language):
             # Japanese/Korean/Chinese: unlike German vs. English (same
             # product, plausibly similar value), these print languages can
             # have wildly different market prices for what Cardmarket

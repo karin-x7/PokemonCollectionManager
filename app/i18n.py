@@ -23,13 +23,14 @@ from __future__ import annotations
 #: there, and a missing entry is instantly visible in the source diff.
 _EN: dict[str, str] = {
     # main_window.py
-    "Karten durchsuchen  (z. B. „xatu skyridge holo“)": (
-        'Search cards  (e.g. "xatu skyridge holo")'
+    "Karten durchsuchen  (z. B. „Light Jolteon“)": (
+        'Search cards  (e.g. "Light Jolteon")'
     ),
     "Suchen": "Search",
     "Statistik": "Statistics",
     "Statistiken": "Statistics",
     "Sealed": "Sealed",
+    "Export": "Export",
     "Infos und Einstellungen": "Info and help",
     "bereit": "ready",
     # settings_dialog.py
@@ -52,19 +53,20 @@ _EN: dict[str, str] = {
     "Notizen:": "Notes:",
     "Eigener Cardmarket-Link:": "Custom Cardmarket link:",
     (
-        "Nur nötig bei Japanisch/Koreanisch/Chinesisch: eigener Link zum "
-        "richtigen Cardmarket-Produkt"
-    ): "Only needed for Japanese/Korean/Chinese: custom link to the correct Cardmarket product",
+        "Nur nötig, wenn die automatische Zuordnung falsch ist: eigener "
+        "Link zum richtigen Cardmarket-Produkt"
+    ): "Only needed if automatic matching is wrong: custom link to the correct Cardmarket product",
     (
-        "Für Japanisch/Koreanisch/Chinesisch führt Cardmarket den Druck als "
-        "eigenständiges Produkt unter einem anderen Set-Namen -- die "
-        "automatische Zuordnung zeigt dort das falsche (westliche) Produkt. "
-        "Hier den korrekten Cardmarket-Link einfügen, um das zu beheben."
+        "Manche älteren Sets/Nachdrucke (z. B. bei Japanisch/Koreanisch/"
+        "Chinesisch) führt Cardmarket als eigenständiges Produkt unter "
+        "einem anderen Set-Namen -- die automatische Zuordnung zeigt dort "
+        "das falsche Produkt. Hier den korrekten Cardmarket-Link einfügen, "
+        "um das zu beheben."
     ): (
-        "For Japanese/Korean/Chinese, Cardmarket lists the print as a separate "
-        "product under a different set name -- automatic matching shows the "
-        "wrong (Western) product there. Paste the correct Cardmarket link "
-        "here to fix that."
+        "Some older/reprint sets (e.g. Japanese/Korean/Chinese) are listed by "
+        "Cardmarket as a separate product under a different set name -- "
+        "automatic matching shows the wrong product there. Paste the correct "
+        "Cardmarket link here to fix that."
     ),
     # export_dialog.py
     "Exportieren": "Export",
@@ -84,10 +86,14 @@ _EN: dict[str, str] = {
     "Cardmarket-Suchergebnisse": "Cardmarket search results",
     "Suche läuft…": "Searching…",
     "Übernehmen": "Use this",
+    "In Cardmarket-Suche im Browser öffnen": "Open Cardmarket search in browser",
     "Cardmarket-Link suchen": "Search Cardmarket link",
+    "Fix Cardmarket-Link": "Fix Cardmarket link",
     "Cardmarket wird durchsucht…": "Searching Cardmarket…",
     "Link wird übernommen…": "Applying link…",
     "Cardmarket-Link gespeichert.": "Cardmarket link saved.",
+    "Diesen Link für „{name}“ speichern?\n{url}": 'Save this link for "{name}"?\n{url}',
+    "Cardmarket-Link nicht übernommen.": "Cardmarket link not saved.",
     # card_list_panel.py
     "Extra": "Extra",
     "Zustand": "Condition",
@@ -134,6 +140,7 @@ _EN: dict[str, str] = {
     # card_detail_panel.py -- field labels (identifiers, also used as dict
     # keys; "Set" is identical in both languages)
     "Kartennummer": "Card number",
+    "Sprache": "Language",
     "Preisqualität": "Price quality",
     "Letzte Aktualisierung": "Last updated",
     "Notizen": "Notes",
@@ -141,6 +148,8 @@ _EN: dict[str, str] = {
     "Preisverlauf anzeigen": "Show price history",
     "Preisverlauf ausblenden": "Hide price history",
     "Kartendetails": "Card details",
+    # sealed_product_detail_panel.py (shares most of the above keys)
+    "Produktdetails": "Product details",
     # models/enums.py -- PriceQuality.label (the only enum whose .label is
     # German prose, not an English technical term like Language/Condition)
     "Exakter Treffer": "Exact match",
@@ -172,6 +181,8 @@ _EN: dict[str, str] = {
     "Preis von": "Price from",
     "bis": "to",
     "Zurücksetzen": "Reset",
+    # statistics_service.py
+    "Sonstiges": "Other",
     # statistics_panel.py
     "noch nie aktualisiert": "never updated",
     "vor {days} Tagen": "{days} days ago",
@@ -223,6 +234,9 @@ _EN: dict[str, str] = {
     "Wirklich den gesamten Preisverlauf dieser Karte löschen? Das kann nicht rückgängig gemacht werden.": (
         "Really delete this card's entire price history? This cannot be undone."
     ),
+    "Wirklich den gesamten Preisverlauf dieses Produkts löschen? Das kann nicht rückgängig gemacht werden.": (
+        "Really delete this product's entire price history? This cannot be undone."
+    ),
     # catalog_search_controller.py
     "Bitte Suchbegriff eingeben.": "Please enter a search term.",
     "Suche läuft für „{query}“ …": 'Searching for "{query}" …',
@@ -241,8 +255,12 @@ _EN: dict[str, str] = {
     "{count} {unit} nach „{name}“ exportiert.": '{count} {unit} exported to "{name}".',
     "Karte(n)": "card(s)",
     "Sealed-Produkt(e)": "sealed product(s)",
-    # price_controller.py
+    # price_controller.py / sealed_price_controller.py
     "Preis wird von Cardmarket abgerufen…": "Fetching price from Cardmarket…",
+    "Preis {position}/{total} wird von Cardmarket abgerufen…": (
+        "Fetching price {position}/{total} from Cardmarket…"
+    ),
+    "Alle veralteten Preise wurden aktualisiert.": "All outdated prices have been updated.",
     "Preis für „{name}“ aktualisiert: {price} {currency}": (
         'Price for "{name}" updated: {price} {currency}'
     ),
@@ -285,30 +303,31 @@ _EN: dict[str, str] = {
     "Keine Angebote auf der Cardmarket-Seite für „{hint}“ erkannt.": (
         'No offers detected on the Cardmarket page for "{hint}".'
     ),
+    "Der gewählte Cardmarket-Treffer konnte nicht wiedergefunden werden. Bitte erneut versuchen.": (
+        "Could not find the chosen Cardmarket result again. Please try again."
+    ),
     "Sealed-Produkt eintragen": "Add sealed product",
     # card_artwork_view.py
     "Kein Foto": "No photo",
     # price_service.py
-    "Geschätzt aus {language}, Zustand {found_condition} statt {expected_condition}.": (
-        "Estimated from {language}, condition {found_condition} instead of "
+    "{language}, {found_condition} statt {expected_condition}.": (
+        "{language}, {found_condition} instead of {expected_condition}."
+    ),
+    "{found_language} statt {expected_language}, gleicher Zustand ({condition}).": (
+        "{found_language} instead of {expected_language}, same condition ({condition})."
+    ),
+    "{found_language}, {found_condition} statt {expected_language}, {expected_condition}.": (
+        "{found_language}, {found_condition} instead of {expected_language}, "
         "{expected_condition}."
     ),
-    "Geschätzt aus {found_language} statt {expected_language}, gleicher Zustand ({condition}).": (
-        "Estimated from {found_language} instead of {expected_language}, "
-        "same condition ({condition})."
-    ),
-    "Durchschnitt über alle gefundenen Angebote, unabhängig von Zustand und Sprache.": (
-        "Average over all offers found, regardless of condition and language."
-    ),
     (
-        "Automatische Preisermittlung für {language} wird nicht unterstützt "
-        "(Cardmarket führt diesen Druck als eigenständiges Produkt). Trage "
-        "unter „Eigener Cardmarket-Link“ den korrekten Link ein, um die "
-        "Preisermittlung für diese Karte zu aktivieren."
+        "Keine {language}-Angebote auf Cardmarket gefunden. Ein Preis aus "
+        "einer anderen Sprache wird nicht geschätzt, da sich Marktpreise für "
+        "{language} stark unterscheiden können."
     ): (
-        "Automatic price lookup for {language} is not supported (Cardmarket "
-        "lists this print as a separate product). Enter the correct link "
-        'under "Custom Cardmarket link" to enable price lookups for this card.'
+        "No {language} offers found on Cardmarket. A price is not estimated "
+        "from a different language, since market prices for {language} can "
+        "differ wildly."
     ),
     (
         "{set_name} führt mehrere Druckvarianten (z. B. Normal/Shadowless) "
@@ -337,6 +356,15 @@ _EN: dict[str, str] = {
         "Estimated from {found}, {expected} was wanted."
     ),
     "Keine Angebote auf Cardmarket gefunden.": "No offers found on Cardmarket.",
+    (
+        "Auf dieser Seite gibt es aktuell keine Angebote in {expected} -- für "
+        "Japanisch/Koreanisch/Chinesisch wird aus einer anderen Sprache kein "
+        "Schätzpreis übernommen, da die Preise stark abweichen können."
+    ): (
+        "This page currently has no offers in {expected} -- for Japanese/"
+        "Korean/Chinese, no estimate is taken from another language, since "
+        "prices can differ substantially."
+    ),
     # sealed_product_list_panel.py
     "Name": "Name",
     "Kategorie": "Category",
@@ -344,6 +372,8 @@ _EN: dict[str, str] = {
     "+ Sealed-Produkt hinzufügen": "+ Add sealed product",
     "Sealed-Produkt bearbeiten": "Edit sealed product",
     "Sealed-Produkt löschen": "Delete sealed product",
+    "Einzelpreis": "Unit price",
+    "Gesamtpreis": "Total price",
     "Soll das Sealed-Produkt „{name}“ wirklich gelöscht werden?": (
         'Should the sealed product "{name}" really be deleted?'
     ),

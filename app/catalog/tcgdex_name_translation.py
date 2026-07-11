@@ -20,12 +20,25 @@ under every Western locale, including ``en`` -- so once a foreign-language
 name search finds the right id, its English name is a second, direct lookup
 away, no species/Pokédex-number matching required at all.
 
+Deliberately never trusts a tcgdex card *id* against pokemontcg.io directly
+either: live-confirmed the two catalogues use incompatible id schemes for at
+least some sets (tcgdex's Scarlet & Violet base set is ``"sv01"``,
+pokemontcg.io's is ``"sv1"``; see also ``tcgdex_set_icon.py``'s own
+``"me03"`` vs. ``"me3"`` finding). This module only ever hands back a plain
+English *name* (ordinary text any pokemontcg.io query can already use via
+``build_query``), never an id.
+
 Only meant as a fallback once the normal tolerant search (and the
 Pokémon-species table) already came back empty -- an extra couple of live
-requests for an otherwise-dead-end search is an acceptable cost. The five
-locale searches below run *concurrently*, not one after another: tried
-sequentially, a query that matches no locale at all (or a currently slow
-tcgdex) would stack up to five timeouts back to back -- live-observed to
+requests for an otherwise-dead-end search is an acceptable cost. Deliberately
+excludes ``en`` (the query is already assumed non-English at this point): the
+user was explicitly asked (via AskUserQuestion) whether this tier should run
+earlier/broader for extra speed and declined, since that would add several
+background tcgdex requests to *every* search, including completely ordinary
+English hits, for no benefit in the common case (see PROJECT_PROGRESS.md).
+The five locale searches below run *concurrently*, not one after another:
+tried sequentially, a query that matches no locale at all (or a currently
+slow tcgdex) would stack up to five timeouts back to back -- live-observed to
 compound badly with pokemontcg.io's own occasional slowness elsewhere in
 the same search (a user report: a search taking "very long" once this
 fallback was added). A short, dedicated timeout (see
@@ -52,10 +65,10 @@ _BASE_URL = "https://api.tcgdex.net/v2"
 #: degraded response.
 _DEFAULT_TIMEOUT = 6.0
 
-#: Western release languages, searched concurrently -- excludes ``en`` (the
-#: query is already assumed non-English at this point) and the
-#: independently-numbered ja/ko/zh-tw locales (already covered, in the other
-#: direction, by ``tcgdex_designation_lookup.py``).
+#: Western release languages, searched concurrently -- excludes ``en`` (see
+#: module docstring for why) and the independently-numbered ja/ko/zh-tw
+#: locales (already covered, in the other direction, by
+#: ``tcgdex_designation_lookup.py``).
 _WESTERN_LOCALES = ("de", "fr", "es", "it", "pt")
 
 

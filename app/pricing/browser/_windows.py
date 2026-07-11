@@ -217,6 +217,52 @@ def _open_in_chrome(url: str, cold_start: bool) -> None:
     subprocess.Popen(args)  # noqa: S603 — fixed executable, fixed/one URL argument
 
 
+def open_cardmarket_link(url: str) -> None:
+    """Open ``url`` in Chrome and leave it open, in its normal foreground size.
+
+    Backs the "Open Cardmarket link" context-menu action: unlike every other
+    function in this module, this is deliberately *not* followed by any
+    window-matching, reading, resizing, or tab-closing -- the whole point is
+    for the user to browse the page themselves, at their own pace, in a
+    normal, full-sized Chrome window. No foreground-restoring either: this
+    is the one case where Chrome briefly taking focus is exactly what the
+    user asked for, not something to work around.
+
+    Raises:
+        BrowserPriceReaderError: If Chrome isn't installed where expected.
+    """
+    import subprocess
+
+    chrome_path = _find_chrome_executable()
+    if chrome_path is None:
+        raise BrowserPriceReaderError(
+            tr(
+                "Google Chrome wurde nicht gefunden. Bitte installiere Chrome "
+                r"(erwarteter Pfad: ...\Google\Chrome\Application\chrome.exe)."
+            )
+        )
+    subprocess.Popen([chrome_path, url])  # noqa: S603 — fixed executable, fixed/one URL argument
+
+
+def open_cardmarket_search(name: str) -> None:
+    """Open Cardmarket's own site search for ``name`` in Chrome, in its
+
+    normal foreground size, and leave it open -- the inline fallback shown
+    in :class:`~app.ui.dialogs.cardmarket_search_results_dialog.
+    CardmarketSearchResultsDialog`'s empty state, for a card
+    :func:`search_cardmarket` itself found no automated match for (e.g. an
+    unusual name or abbreviation the site search doesn't recognise as
+    typed). Same "leave it open, no reading/closing" contract as
+    :func:`open_cardmarket_link` -- the user is meant to browse and search
+    further themselves.
+
+    Raises:
+        BrowserPriceReaderError: If Chrome isn't installed where expected.
+    """
+    url = f"https://www.cardmarket.com/en/Pokemon/Products/Search?searchString={quote(name)}"
+    open_cardmarket_link(url)
+
+
 def _dismiss_cookie_banner(window) -> None:
     """Best-effort: click Cardmarket's own "decline non-essential cookies"
 

@@ -49,6 +49,16 @@ class ProductInfo:
     #: gets. Blank if not resolved (e.g. a network error, or no matching
     #: catalogue set at all) -- never blocks adding the card either way.
     set_code: str = ""
+    #: Best-effort language guess -- the most common language among the
+    #: product page's own already-visible offer rows (see
+    #: ``cardmarket_parsing._detect_dominant_language``), or ``None`` if no
+    #: offers could be parsed at all (e.g. currently out of stock). Only a
+    #: starting point for the add-card dialog's language dropdown, never
+    #: authoritative: a real user reported this defaulting to "English" no
+    #: matter what was actually pasted (the field existed but was hardcoded),
+    #: which then silently mis-filtered later price lookups for JP/KO/ZH/
+    #: German cards added this way -- see ``price_service.py``.
+    detected_language: Language | None = None
 
 
 @dataclass(frozen=True, slots=True)

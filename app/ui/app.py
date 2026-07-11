@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QApplication
 from app import config
 from app.database.connection import Database
 from app.logging_config import get_logger
+from app.ui.dialogs.welcome_dialog import maybe_show_welcome_dialog
 from app.ui.main_window import MainWindow
 
 logger = get_logger(__name__)
@@ -78,6 +79,7 @@ def run_gui(database: Database | None = None) -> int:
     app = build_application()
     window = MainWindow(database=database)
     window.show()
+    maybe_show_welcome_dialog(window)
     window.start_update_check()
     logger.info("GUI started.")
     return app.exec()

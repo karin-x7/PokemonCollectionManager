@@ -70,6 +70,29 @@ def test_list_by_collection_returns_only_its_own_cards(
     assert names == ["Xatu"]
 
 
+def test_list_by_collection_orders_oldest_added_first(
+    repo: CardRepository, collection_id: int
+) -> None:
+    # User-requested default (was newest-first): a newly added card should
+    # simply append to the bottom of an already-familiar list.
+    repo.create(_new_card(collection_id, name="Xatu"))
+    repo.create(_new_card(collection_id, name="Charizard"))
+    repo.create(_new_card(collection_id, name="Venusaur"))
+
+    names = [c.name for c in repo.list_by_collection(collection_id)]
+
+    assert names == ["Xatu", "Charizard", "Venusaur"]
+
+
+def test_search_orders_oldest_added_first(repo: CardRepository, collection_id: int) -> None:
+    repo.create(_new_card(collection_id, name="Xatu"))
+    repo.create(_new_card(collection_id, name="Charizard"))
+
+    names = [c.name for c in repo.search(CardFilter(collection_id=collection_id))]
+
+    assert names == ["Xatu", "Charizard"]
+
+
 def test_update_details_persists_new_values(repo: CardRepository, collection_id: int) -> None:
     created = repo.create(_new_card(collection_id, quantity=1, notes="alt"))
 

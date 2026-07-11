@@ -20,16 +20,18 @@ text:
 from __future__ import annotations
 
 from PySide6.QtCore import QObject
-from PySide6.QtWidgets import QMainWindow
+from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from app.i18n import tr
 from app.logging_config import get_logger
+from app.pricing.browser_price_reader import BrowserPriceReaderError, open_cardmarket_search
 from app.pricing.models import CardmarketSearchResult
 from app.services.card_service import CardService
 from app.services.exceptions import ServiceError
 from app.ui.controllers.card_controller import CardController
 from app.ui.dialogs.cardmarket_search_results_dialog import CardmarketSearchResultsDialog
 from app.ui.widgets.card_detail_panel import CardDetailPanel
+from app.ui.widgets.card_list_panel import CardListPanel
 from app.ui.workers.cardmarket_search_resolve_worker import CardmarketSearchResolveWorker
 from app.ui.workers.cardmarket_search_worker import CardmarketSearchWorker
 
@@ -45,6 +47,7 @@ class CardmarketSearchController(QObject):
         detail_panel: CardDetailPanel,
         card_service: CardService,
         card_controller: CardController,
+        list_panel: CardListPanel | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent or main_window)
@@ -58,6 +61,10 @@ class CardmarketSearchController(QObject):
         self._card_name: str | None = None
 
         detail_panel.cardmarket_search_requested.connect(self.start)
+        # "Fix Cardmarket-Link" context-menu action (live-reported request:
+        # this was previously only reachable via the detail panel button).
+        if list_panel is not None:
+            list_panel.cardmarket_search_requested.connect(self.start)
 
     def start(self, card_id: int) -> None:
         """Look up ``card_id``'s own name and search Cardmarket for it."""
@@ -85,7 +92,25 @@ class CardmarketSearchController(QObject):
         dialog = CardmarketSearchResultsDialog(parent=self._main_window)
         dialog.set_results(results)
         dialog.result_confirmed.connect(self._on_result_confirmed)
+        dialog.manual_search_requested.connect(self._on_manual_search_requested)
         dialog.exec()
+
+    def _on_manual_search_requested(self) -> None:
+        """The automated search found nothing at all -- open Cardmarket's
+
+        own search for the card's name in a normal, foreground browser
+        window instead, left open for the user to search further
+        themselves (mirrors "Cardmarket-Link öffnen"'s own "leave it open"
+        contract). The found product's link still needs to be pasted in via
+        "Bearbeiten" afterward -- this only gets the user to the right
+        starting point.
+        """
+        if self._card_name is None:
+            return
+        try:
+            open_cardmarket_search(self._card_name)
+        except BrowserPriceReaderError as exc:
+            self._main_window.statusBar().showMessage(str(exc), 5000)
 
     def _on_search_failed(self, message: str) -> None:
         self._main_window.statusBar().showMessage(message, 5000)
@@ -106,7 +131,21 @@ class CardmarketSearchController(QObject):
         self._resolve_worker.start()
 
     def _on_resolve_succeeded(self, url: str) -> None:
-        if self._card_id is None:
+        if self._card_id is None or self._card_name is None:
+            return
+        # One last explicit confirmation before actually saving/overwriting
+        # the card's Cardmarket link -- live-reported request: everything
+        # up to here (picking a candidate) only confirms *which product* to
+        # resolve, not the final URL this step just discovered.
+        answer = QMessageBox.question(
+            self._main_window,
+            tr("Cardmarket-Link suchen"),
+            tr("Diesen Link für „{name}“ speichern?\n{url}").format(
+                name=self._card_name, url=url
+            ),
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self._main_window.statusBar().showMessage(tr("Cardmarket-Link nicht übernommen."), 5000)
             return
         try:
             self._service.set_manual_cardmarket_url(self._card_id, url)

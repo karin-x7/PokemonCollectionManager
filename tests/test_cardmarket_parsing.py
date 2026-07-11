@@ -1,9 +1,12 @@
-"""Tests for the pure offer-parsing logic in browser_price_reader.
+"""Tests for the pure, OS-agnostic URL-building/text-parsing logic shared by
+every platform's browser-reading backend.
 
-Only ``_parse_offer_lines`` is tested here: a window-reading function has no
-deterministic, sandboxable behaviour to test against (it depends on a real
-browser window actually being open on screen), so it's verified manually
-instead (see PROJECT_PROGRESS.md).
+A window-reading function has no deterministic, sandboxable behaviour to
+test against (it depends on a real browser window actually being open on
+screen), so those are verified manually instead (see PROJECT_PROGRESS.md) --
+the one exception, ``_read_visible_text``, takes a fake window object and is
+tested in ``test_browser_windows.py`` instead, since it lives in the
+Windows-specific backend, not here.
 """
 
 from __future__ import annotations
@@ -13,7 +16,7 @@ from unittest.mock import MagicMock
 import requests
 
 from app.models.enums import Condition, Language
-from app.pricing.browser_price_reader import (
+from app.pricing.cardmarket_parsing import (
     _find_breadcrumb_set_name,
     _has_cookie_banner,
     _parse_offer_lines,
@@ -21,7 +24,6 @@ from app.pricing.browser_price_reader import (
     _parse_search_result_line,
     _parse_sealed_offer_lines,
     _parse_sealed_product_info,
-    _read_visible_text,
     build_filtered_url,
     build_sealed_filtered_url,
     find_alternate_version_url,
@@ -155,12 +157,19 @@ def test_supports_language_filter_true_for_western_languages() -> None:
     assert supports_language_filter(Language.ENGLISH) is True
 
 
-def test_supports_language_filter_false_for_asian_languages() -> None:
-    # Japanese/Korean/Chinese printings are separate Cardmarket products with
-    # their own URL, not a language filter on the same product page.
-    assert supports_language_filter(Language.JAPANESE) is False
-    assert supports_language_filter(Language.KOREAN) is False
-    assert supports_language_filter(Language.CHINESE) is False
+def test_supports_language_filter_true_for_asian_languages() -> None:
+    # Live-reported (with a screenshot): ?language=7&minCondition=... on an
+    # ordinary single card's own product page correctly narrowed straight to
+    # its Japanese/Excellent-or-better offers -- the same filter ids the
+    # sealed-product table already used. The "separate product" scenario
+    # (e.g. Neo Revelation's Ho-Oh being "Awakening Legends") is real but
+    # narrower than previously assumed: specific vintage/reprint sets whose
+    # stored URL points at the wrong product entirely, not a general
+    # property of these three languages -- see PriceService's alternate-
+    # version retry and the manual-Cardmarket-link override for that case.
+    assert supports_language_filter(Language.JAPANESE) is True
+    assert supports_language_filter(Language.KOREAN) is True
+    assert supports_language_filter(Language.CHINESE) is True
 
 
 def test_build_filtered_url_with_no_filters_returns_base_url_unchanged() -> None:
@@ -185,11 +194,14 @@ def test_build_filtered_url_language_and_condition_combined() -> None:
     assert url == "https://cardmarket.com/x?language=1&minCondition=2"
 
 
-def test_build_filtered_url_unsupported_language_is_silently_ignored() -> None:
+def test_build_filtered_url_supports_japanese_too() -> None:
+    # Every Language enum member now has a Cardmarket filter id (see
+    # test_supports_language_filter_true_for_asian_languages) -- there is no
+    # longer an "unsupported, silently ignored" language to test.
     url = build_filtered_url(
         "https://cardmarket.com/x", language=Language.JAPANESE, min_condition=Condition.GOOD
     )
-    assert url == "https://cardmarket.com/x?minCondition=4"
+    assert url == "https://cardmarket.com/x?language=7&minCondition=4"
 
 
 def test_build_filtered_url_appends_to_an_already_queried_base_url() -> None:
@@ -337,6 +349,35 @@ def test_parse_product_info_returns_none_when_no_title_line_matches() -> None:
     assert _parse_product_info(["Some random page", "404 Not Found"]) is None
 
 
+def test_parse_product_info_detects_the_dominant_offer_language() -> None:
+    # Real, live-reported bug: the add-card dialog's language dropdown always
+    # defaulted to English regardless of what was actually pasted -- the
+    # product page's own offer rows (already scraped for the same read) are
+    # a much better starting guess than a hardcoded constant.
+    lines = [
+        "Nachtara-GX (36) - SM Schwarzstern Promos | Cardmarket - Google Chrome",
+        "Nachtara-GX (36) - SM Schwarzstern Promos | Cardmarket",
+        "66", "pokerina", "German", "PO", "24,99 €", "1",
+        "14", "K", "LevelUp-Wehavefun", "German", "GD", "47,45 €", "1",
+        "952", "M2workshop", "English", "NM", "59,90 €", "1",
+    ]
+
+    info = _parse_product_info(lines)
+
+    assert info.detected_language == Language.GERMAN
+
+
+def test_parse_product_info_detected_language_is_none_without_any_offers() -> None:
+    lines = [
+        "Venusaur (18) - Legendary Collection | Cardmarket - Google Chrome",
+        "Currently out of stock",
+    ]
+
+    info = _parse_product_info(lines)
+
+    assert info.detected_language is None
+
+
 #: A trimmed but structurally faithful slice of a real, live-captured
 #: "Shining Mew" (Cardmarket's "Unnumbered Promos" category) page dump --
 #: see _find_breadcrumb_set_name's own docs for the breadcrumb shape this
@@ -374,6 +415,34 @@ def test_parse_product_info_falls_back_to_bare_title_for_unnumbered_promos() -> 
     info = _parse_product_info(_UNNUMBERED_PROMO_LINES)
 
     assert info == ProductInfo(name="Shining Mew", set_name="Unnumbered Promos", card_number="")
+
+
+def test_parse_product_info_translates_a_foreign_name_to_english(monkeypatch) -> None:
+    # Live-reported: on a non-English Cardmarket locale (cardmarket.com/de/...)
+    # the page's own title is in that language ("Despotar V"), not English
+    # ("Tyranitar V") -- every other card is stored under its English name,
+    # so a manually-entered one should be too.
+    monkeypatch.setattr(
+        "app.pricing.cardmarket_parsing.translate_name_with_suffix",
+        lambda name: "Tyranitar V" if name == "Despotar V" else None,
+    )
+    lines = ["Despotar V (V3) - Single Strike Master | Cardmarket - Google Chrome"]
+
+    info = _parse_product_info(lines)
+
+    assert info == ProductInfo(name="Tyranitar V", set_name="Single Strike Master", card_number="V3")
+
+
+def test_parse_product_info_translates_the_bare_title_fallback_too(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.pricing.cardmarket_parsing.translate_name_with_suffix",
+        lambda name: "Ho-Oh" if name == "Homolog" else None,
+    )
+    lines = ["Homolog | Cardmarket - Google Chrome", "Homolog | Cardmarket"]
+
+    info = _parse_product_info(lines)
+
+    assert info.name == "Ho-Oh"
 
 
 def test_find_breadcrumb_set_name_reads_the_label_before_the_current_page() -> None:
@@ -747,36 +816,5 @@ def test_handles_a_version_suffix_with_no_trailing_dash() -> None:
     assert result == (
         "https://cardmarket.com/en/Pokemon/Products/Singles/Evolving-Skies/Umbreon-VMAX-V2?utm_source=pokemontcgio"
     )
-
-
-def _fake_descendant(text: str, visible: bool = True, raises: bool = False):
-    node = MagicMock()
-    node.is_visible.return_value = visible
-    if raises:
-        node.is_visible.side_effect = RuntimeError("control vanished mid-walk")
-    node.window_text.return_value = text
-    return node
-
-
-def test_read_visible_text_skips_invisible_and_empty_and_errored_nodes() -> None:
-    """Real bug this supports diagnosing: the window title can appear
-
-    before the page's actual content has rendered, netting only a handful
-    of lines (the browser's own chrome) instead of the usual several dozen
-    -- see ``_open_and_capture_visible_text``'s one-retry-if-too-sparse
-    logic, built after a live incident found exactly this.
-    """
-    window = MagicMock()
-    window.descendants.return_value = [
-        _fake_descendant("Available items"),
-        _fake_descendant("", visible=True),  # empty text -- dropped
-        _fake_descendant("hidden text", visible=False),  # invisible -- dropped
-        _fake_descendant("irrelevant", raises=True),  # vanished mid-walk -- dropped
-        _fake_descendant("13,90 €"),
-    ]
-
-    lines = _read_visible_text(window)
-
-    assert lines == ["Available items", "13,90 €"]
 
 

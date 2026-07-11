@@ -58,9 +58,14 @@ class CardRepository:
         return self._db.connection
 
     def list_by_collection(self, collection_id: int) -> list[Card]:
-        """Return all cards in a collection, most recently added first."""
+        """Return all cards in a collection, oldest added first.
+
+        User-requested default (was newest-first) -- new cards then simply
+        append to the bottom of an already-familiar list instead of
+        reshuffling everything above them.
+        """
         rows = self._conn.execute(
-            "SELECT * FROM cards WHERE collection_id = ? ORDER BY id DESC",
+            "SELECT * FROM cards WHERE collection_id = ? ORDER BY id ASC",
             (collection_id,),
         ).fetchall()
         return [_row_to_card(row) for row in rows]
@@ -122,7 +127,7 @@ class CardRepository:
 
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self._conn.execute(
-            f"SELECT * FROM cards {where} ORDER BY id DESC", params
+            f"SELECT * FROM cards {where} ORDER BY id ASC", params
         ).fetchall()
         return [_row_to_card(row) for row in rows]
 

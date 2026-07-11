@@ -19,6 +19,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 
+from app.catalog.name_translation import translate_name_with_suffix
 from app.i18n import tr
 from app.logging_config import get_logger
 from app.models.enums import Condition, Language, SealedCategory
@@ -70,13 +71,21 @@ _LANGUAGE_BY_LABEL = {
 
 #: Cardmarket's own numeric ids for its ``language``/``minCondition`` product-page
 #: query filters, confirmed live by reading the filter form's own input elements
-#: (not documented anywhere public). Note these are *not* contiguous — e.g.
-#: Dutch is 12 — and only cover the western languages Cardmarket exposes as a
-#: filter on a single *card's* page. Japanese/Korean/Chinese prints of a
-#: single card are separate Cardmarket products with their own URL entirely
-#: (often under the Japanese set's own name, e.g. Neo Revelation's Ho-Oh is
-#: "Awakening Legends" there), not a language filter on the same page, so
-#: they have no id here -- see ``price_service.py``'s own handling of this.
+#: (not documented anywhere public). Note these are *not* contiguous -- e.g.
+#: Dutch is 12. Previously assumed Japanese/Korean/Chinese had no filter id at
+#: all here (single cards in those languages were treated as an entirely
+#: separate Cardmarket product, e.g. Neo Revelation's Ho-Oh being "Awakening
+#: Legends") -- live-reported (with a screenshot) that this was wrong for the
+#: general case: ``?language=7&minCondition=3`` on an ordinary single card's
+#: own product page (Ho-Oh EX, "Rage of the Broken Heavens") correctly
+#: narrowed straight to its Japanese/Excellent-or-better offers, same ids as
+#: the sealed-product table below already used. The "separate product"
+#: scenario is real but narrower than assumed: it's specific to certain
+#: vintage/reprint sets whose pokemontcg.io-sourced URL points at the wrong
+#: product entirely, not a general property of these three languages -- see
+#: :func:`~app.services.price_service.PriceService._try_alternate_version`
+#: and the manual-Cardmarket-link override for how that narrower case is
+#: still handled.
 _CARDMARKET_LANGUAGE_IDS: dict[Language, int] = {
     Language.ENGLISH: 1,
     Language.FRENCH: 2,
@@ -84,26 +93,31 @@ _CARDMARKET_LANGUAGE_IDS: dict[Language, int] = {
     Language.SPANISH: 4,
     Language.ITALIAN: 5,
     Language.PORTUGUESE: 8,
-}
-
-#: Unlike single cards, a *sealed* product's Cardmarket page genuinely does
-#: expose Japanese/Korean/Traditional Chinese as a language filter on the
-#: same page -- live-confirmed against a real, Asian-exclusive-only set
-#: ("Abyss Eye Booster Box", no Western release at all): its own filter
-#: sidebar lists exactly these three languages, and clicking each one's
-#: checkbox in a real browser session produced ``?language=7`` (Japanese),
-#: ``?language=10`` (Korean), ``?language=11`` (Traditional Chinese)
-#: respectively. Deliberately a separate table from
-#: ``_CARDMARKET_LANGUAGE_IDS`` above, not merged into it: cards genuinely
-#: need Japanese/Korean/Chinese treated as "no filter, different product"
-#: (see ``price_service.py``), and silently changing that shared table
-#: would defeat its own "bail out, don't guess" protection there.
-_SEALED_CARDMARKET_LANGUAGE_IDS: dict[Language, int] = {
-    **_CARDMARKET_LANGUAGE_IDS,
     Language.JAPANESE: 7,
     Language.KOREAN: 10,
     Language.CHINESE: 11,
 }
+
+#: Sealed products and single cards turned out to share the exact same
+#: language-filter ids (see the correction above) -- kept as its own name
+#: rather than replacing every call site, since ``sealed_supports_language_
+#: filter``/``build_sealed_filtered_url`` are still meaningfully distinct
+#: *functions* (sealed products have no condition ladder or extras filter at
+#: all, for instance), just no longer a distinct *language set*.
+_SEALED_CARDMARKET_LANGUAGE_IDS: dict[Language, int] = _CARDMARKET_LANGUAGE_IDS
+
+#: Japanese/Korean/Chinese prints of the *same* card can have wildly
+#: different market prices from Western-language copies -- unlike, say,
+#: German vs. English (the same product, plausibly similar value). This is
+#: unrelated to whether Cardmarket exposes a URL filter for these languages
+#: (see the correction above, it does): it's a deliberate refusal to ever
+#: silently estimate one of these three languages' price *from* a different
+#: language's offers, even when the ordinary condition-tolerance ladder
+#: would otherwise allow it. Named/checked separately from
+#: :func:`supports_language_filter` so the two concerns -- "can this URL be
+#: filtered by language" vs. "is cross-language price estimation safe for
+#: this language" -- can't accidentally get tangled again.
+_MARKET_DIVERGENT_LANGUAGES = frozenset({Language.JAPANESE, Language.KOREAN, Language.CHINESE})
 #: ``minCondition`` matches this condition *or better*; ids run Mint(1)..Poor(7),
 #: identical order to our own :class:`Condition` enum.
 _CARDMARKET_CONDITION_IDS: dict[Condition, int] = {
@@ -260,6 +274,16 @@ def find_alternate_version_url(url: str) -> str | None:
 def supports_language_filter(language: Language) -> bool:
     """Whether Cardmarket exposes ``language`` as a filter on this product page."""
     return language in _CARDMARKET_LANGUAGE_IDS
+
+
+def is_market_divergent_language(language: Language) -> bool:
+    """Whether ``language`` must never be silently estimated from a
+
+    different language's offers -- see :data:`_MARKET_DIVERGENT_LANGUAGES`'s
+    own docs for why this is a separate concern from
+    :func:`supports_language_filter`.
+    """
+    return language in _MARKET_DIVERGENT_LANGUAGES
 
 
 def build_filtered_url(
@@ -502,6 +526,44 @@ def _find_breadcrumb_set_name(lines: list[str], name: str) -> str:
     return ""
 
 
+def _detect_dominant_language(lines: list[str]) -> Language | None:
+    """Best-effort guess at the product's language: the most common one among
+    its own already-visible offer rows (see :func:`_parse_offer_lines`,
+    reusing the exact same parsing this project already trusts for price
+    lookups), or ``None`` if no offers could be parsed at all (e.g. currently
+    out of stock, or the offer table hadn't finished rendering).
+
+    Only ever a starting point for the add-card dialog's language dropdown
+    (see ``ProductInfo.detected_language``'s own docs) -- a product page can
+    genuinely list several languages side by side, so "most common" is a
+    reasonable single guess, not a guarantee of the exact card the user is
+    about to add.
+    """
+    offers = _parse_offer_lines(lines)
+    languages = [offer.language for offer in offers if offer.language is not None]
+    if not languages:
+        return None
+    return max(set(languages), key=languages.count)
+
+
+def _english_card_name(name: str) -> str:
+    """``name`` translated to English if it's a recognised foreign species
+    name (with or without a card-type suffix, e.g. "Blitza V" -> "Jolteon
+    V"), otherwise ``name`` unchanged.
+
+    A manually-entered card's name/set/number are parsed straight off
+    Cardmarket's own product-page title -- live-reported: on a non-English
+    Cardmarket locale (e.g. cardmarket.com/de/...), that title is in the
+    page's own language ("Despotar V"), not English ("Tyranitar V"), even
+    though every other card in the collection is stored under its English
+    name (see ``CardService.add_card_from_catalog``). Applied here, not
+    left to the UI dialog, so it's consistent regardless of what opens
+    that dialog.
+    """
+    translated = translate_name_with_suffix(name)
+    return translated if translated is not None else name
+
+
 def _parse_product_info(lines: list[str]) -> ProductInfo | None:
     """Find and parse Cardmarket's own product-page title among ``lines``.
 
@@ -522,16 +584,20 @@ def _parse_product_info(lines: list[str]) -> ProductInfo | None:
         match = _PRODUCT_TITLE_RE.match(line)
         if match:
             return ProductInfo(
-                name=match.group("name").strip(),
+                name=_english_card_name(match.group("name").strip()),
                 set_name=match.group("set_name").strip(),
                 card_number=match.group("number").strip(),
+                detected_language=_detect_dominant_language(lines),
             )
     for line in lines:
         match = _SEALED_TITLE_RE.match(line)
         if match:
             name = match.group("name").strip()
             return ProductInfo(
-                name=name, set_name=_find_breadcrumb_set_name(lines, name), card_number=""
+                name=_english_card_name(name),
+                set_name=_find_breadcrumb_set_name(lines, name),
+                card_number="",
+                detected_language=_detect_dominant_language(lines),
             )
     return None
 

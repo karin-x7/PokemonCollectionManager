@@ -3,7 +3,243 @@
 > Synchronisationsdatei zwischen mehreren PCs. Enthält jederzeit den aktuellen
 > Entwicklungsstand. Wird nach **jedem** Entwicklungsschritt aktualisiert.
 
-**Letzter Schritt:** Release v0.10.0-alpha.1: seit dem letzten Release
+**Letzter Schritt:** Help/Info-Dialog aktualisiert (Aufgabe #136, nächster
+Punkt der Testprotokoll-Liste): (1) Tab-Reihenfolge in `SettingsDialog`
+getauscht -- Help kommt jetzt vor Info. (2) Credits-Zeile im Info-Tab von
+"Created by Codeon — GitHub-Link" auf schlichtes "Created by Karin" ohne
+Link geändert. (3) Neuer Abschnitt "Search accuracy" im Help-Text: weist
+explizit darauf hin, dass die mehrsprachige Suche (DE/FR/ES/IT/PT +
+Tippfehler-Toleranz) "best-effort, not guaranteed" ist und ungewöhnliche
+Namen/neue Sets ggf. auf Englisch gesucht oder per Cardmarket-Link manuell
+eingetragen werden müssen -- direkte Reaktion auf die zahlreichen
+Suchprobleme aus demselben Testprotokoll. 3 bestehende Tests an die neuen
+Texte/Reihenfolge angepasst, 1 neuer Test für den Accuracy-Hinweis. Alle
+7 Tests grün, `compileall` sauber.
+
+**Vorheriger Schritt:** Restliches Deutsch in der UI gefunden und übersetzt
+(Aufgabe #135, nächster Punkt der Testprotokoll-Liste). Statt einzeln zu
+suchen: kleines AST-basiertes Audit-Skript geschrieben, das jeden `tr(...)`-
+Aufruf mit einem String-Literal im ganzen `app/`-Baum findet und gegen
+`app/i18n.py`s `_EN`-Dict abgleicht -- fand 17 echte Lücken (vorher: bloßes
+Grep/Vermutung). Davon 4 bewusst übersprungen (`_macos.py`/`_unsupported.py`
+-- Mac-Entwicklung bleibt pausiert), die restlichen 13 ergänzt: die
+gemeldete Massenpreisabfrage ("Preis {position}/{total} wird von
+Cardmarket abgerufen…", "Alle veralteten Preise wurden aktualisiert." --
+für Karten UND Sealed-Produkte, beide Controller riefen `tr()` mit exakt
+denselben, bisher unübersetzten Strings auf), dazu u. a. "Sonstiges"→"Other"
+(Sealed-Kategorie-Fallback in `statistics_service.py`), "Produktdetails"→
+"Product details", "Einzelpreis"/"Gesamtpreis"→"Unit price"/"Total price"
+(Sealed-Tabellenspalten), die JP/KO/ZH-Sealed-Schätzpreis-Meldung, die
+Sealed-Preisverlauf-Löschbestätigung und die "Cardmarket-Treffer nicht
+wiedergefunden"-Meldung aus der Sucheautomatisierung. Audit-Skript danach
+erneut laufen lassen: 0 verbleibende Lücken außerhalb der bewusst
+übersprungenen Mac-Dateien. 3 bestehende Tests hatten die alten deutschen
+Texte hart einprogrammiert (`"aktualisiert"`/`"Japanisch"` als Substring-
+Check) -- an die neuen englischen Texte angepasst. Volle relevante
+Testsuite grün (36/36 für die drei betroffenen Dateien), `compileall`
+sauber.
+
+**Vorheriger Schritt:** Set-Icon-"Kasten" im Card-Details-Panel (Aufgabe #134,
+Rest des UI-Polish-Batches) endlich wirklich gefunden und behoben -- meine
+erste Runde (Icon auf ein festes, transparentes Canvas skalieren) war nicht
+die eigentliche Ursache, nur eine legitime Nebenverbesserung. Nutzer lieferte
+den entscheidenden Hinweis per Live-Screenshot-Vergleich: derselbe Kasten
+existierte schon einmal, beim "Alle Sammlungen"-Checkbox (siehe
+`theme.py`s eigene Doku dazu) -- und betraf jetzt nur noch das Icon im
+Detailpanel, nicht mehr dieselbe Karte in der Tabelle. Echte Ursache:
+`app/ui/theme.py`s globale `QMainWindow, QWidget { background-color: ... }`-
+Regel bemalt JEDES QWidget (auch ein namenloses `QLabel()`) mit einem
+opaken Hintergrund, sofern nicht explizit `background: transparent`
+gesetzt wird -- genau wie beim Checkbox-Bug, nur diesmal beim
+Set-Icon-Label (`card_detail_panel.py`), das nie eine eigene
+`background: transparent`-Regel bekommen hatte (jede der vorhandenen
+`QLabel#Name`-Regeln in `theme.py` musste das bereits einzeln wiederholen).
+Fix: neue allgemeine `QLabel { background: transparent; }`-Regel in
+`theme.py`, mirror der bestehenden `QCheckBox`-Lösung -- deckt jedes
+zukünftige, noch namenlose QLabel automatisch mit ab. Zusätzlich (bereits
+in derselben Debugging-Runde behoben, bevor die eigentliche Ursache klar
+war): `card_detail_panel.py`s Set-Icon-Label nutzt kein
+`setScaledContents(True)` mehr (redundanter zweiter Stretch), und
+`set_icon_provider.py` skaliert heruntergeladene Set-Icons jetzt generell
+auf ein festes 20x20-Canvas (behebt separat, dass manche pokemontcg.io-Icons
+in Rohauflösungen bis 884x452px roh weitergereicht wurden). Live vom Nutzer
+bestätigt: "Ja! Es ist weg!". Nutzer hat parallel drei weitere kleine Punkte
+(Ecke unten links "nicht schön", Spinner-Pfeile "nicht schön", Eingabefelder
+etwas heller/blauer) nur als Kontext mitgeschickt, ausdrücklich noch NICHT
+zur Umsetzung freigegeben ("ich wollte dir die Nachricht nur als Referenz
+wegen der Icon geben") -- eine versehentlich schon vorgenommene
+Eingabefeld-Farbänderung wieder zurückgenommen, wartet auf explizite
+Freigabe. `compileall` sauber, bestehende Tests weiterhin grün.
+
+**Vorheriger Schritt:** Nutzer hat die App live geprüft (Set-Icon-Fix) und
+dabei einen weiteren, ungeplanten Fund gemeldet: das "Sprache:"-Feld im
+Card-Details-Panel war noch Deutsch, obwohl die UI seit Aufgabe #81
+komplett Englisch sein soll. Ursache: `card_detail_panel.py` ruft
+`tr(field)` mit dem BAREN Feldnamen "Sprache" auf (Doppelpunkt wird erst
+danach angehängt), aber `app/i18n.py` hatte bisher nur einen Eintrag für
+"Sprache:" (MIT Doppelpunkt, aus `card_details_dialog.py`) -- `tr()`s
+"kein Eintrag → Text unverändert zurückgeben"-Fallback lieferte deshalb
+`"Sprache"` statt `"Language"`. Fix: neuer Eintrag `"Sprache": "Language"`
+in `i18n.py` -- behebt denselben Bug nebenbei an drei weiteren, bisher
+unbemerkten Stellen, die exakt denselben baren `tr("Sprache")`-Aufruf
+nutzen (`sealed_product_detail_panel.py`, `sealed_product_list_panel.py`,
+`statistics_panel.py`). Die deutsche "Preisqualität"-Beispielmeldung im
+selben Screenshot ("Cardmarket-Tab ... wurde nicht rechtzeitig gefunden")
+ist dagegen keine echte Bug, sondern nur eingefrorener Text aus einem
+alten Preis-Abruf-Versuch (04.07., vor dieser Übersetzung) -- ein neuer
+Abruf würde bereits korrekt Englisch anzeigen (per direktem `tr()`-Aufruf
+verifiziert). 1 neuer Test (`test_card_detail_panel.py`), 66 relevante
+Tests grün, `compileall` sauber.
+
+**Vorheriger Schritt:** UI-Polish-Batch aus demselben Testprotokoll (nächster
+Punkt nach "Manuelles Hinzufügen"), 4 von 6 Punkten erledigt:
+1) **Suchfeld:** Breite 420→520px, Platzhaltertext-Beispiel auf "Light
+Jolteon" geändert (`main_window.py`, `i18n.py`).
+2) **Quantity-Spinner-Pfeile:** Neue `QSpinBox::up-arrow`/`::down-arrow`-
+QSS-Regeln (vorher gar keine -- die nativen Pfeile waren gegen das dunkle
+Theme kaum sichtbar), zwei neue Pfeil-Icons (`spin_up.png`/`spin_down.png`,
+per PIL erzeugt, gleiche Farbe wie der bestehende Dropdown-Chevron)
+erzeugt, mirror der bestehenden `QComboBox::down-arrow`-Behandlung.
+3) **Standard-Sortierung:** `CardRepository.list_by_collection()`/`.search()`
+von `ORDER BY id DESC` auf `ORDER BY id ASC` (alt→neu) geändert. Bewusst nur
+für Karten, nicht für Sealed/Wantlist (nicht explizit gefordert). 2 neue
+Tests.
+4) **Set-Icon-"Kasten":** Nutzer schickte einen Screenshot + Beschreibung
+("Icons nicht transparent, von einem schwarzen Kasten umrandet -- Problem
+hatten wir schon mal, aber wo anders" -- Referenz auf die
+QComboBox-Dropdown-Pfeil-Behebung). Ursache gefunden: anders als
+Sprache/Zustand (kleine, exakt zugeschnittene, transparent gefüllte
+Pixmaps) werden Set-Icons roh von pokemontcg.io/tcgdex in ihrer
+Original-Auflösung in ein `QIcon` gepackt -- live bestätigt teils **884x452
+Pixel** für eine winzige Tabellenzelle. Qt reserviert dafür einen viel zu
+großen Dekorations-Platz. Fix in `set_icon_provider.py`: neues
+`_load_scaled_icon()` skaliert (mit Seitenverhältnis) auf ein festes,
+transparent gefülltes 20x20-Canvas, exakt dieselbe Technik wie
+Sprache/Zustand. 3 neue Tests (`test_set_icon_provider.py`). **Noch nicht
+live vom Nutzer bestätigt** -- Ursache ist plausibel und technisch
+stimmig, aber ohne Live-Screenshot der reparierten Version nicht 100%
+sicher als behoben zu markieren.
+5) **Bildgrößen im Detailpanel:** noch offen, Nutzer wollte einen Screenshot
+schicken, aber noch nicht angekommen.
+6) **Drag & Drop:** Design mit dem Nutzer abgestimmt (eigene Sortierstufe,
+nur aktiv wenn kein Spalten-Sort läuft), aber bewusst als eigener,
+separater Schritt zurückgestellt (echtes neues Feature: DB-Migration +
+Repository + UI, nicht nur Politur) -- laut Projekt-Konvention nicht
+mehrere große Features gleichzeitig.
+Tests: 5 neue insgesamt (2x Sortierreihenfolge, 3x Set-Icon-Skalierung),
+alle grün. `compileall` sauber.
+
+**Vorheriger Schritt:** Aus derselben Testprotokoll-Liste (Priorität lt.
+Nutzer: nach der Suche als Nächstes "Manuelles Hinzufügen") alle drei
+Punkte behoben:
+1) **Busy-Overlay:** `ManualEntryController.start()`/`_cleanup()` rufen
+jetzt `main_window.busy_overlay.show_busy()`/`hide_busy()` auf (mirror von
+`PriceController._start()`) -- vorher gab es beim Lesen der Cardmarket-
+Seite nur eine leicht übersehene Statusleisten-Meldung.
+2) **Sprachfilter beim manuellen Hinzufügen:** `CardListPanel.
+prompt_add_manual()` setzte die Sprache im Add-Dialog immer hart auf
+`Language.ENGLISH`, unabhängig davon, was tatsächlich eingefügt wurde --
+ausgerechnet bei einem Flow, dessen ganzer Zweck JP/KO/ZH/Vintage-Drucke
+sind. Das führte dazu, dass spätere Preisabrufe für nicht-englische, so
+hinzugefügte Karten den falschen Sprachfilter benutzten. Fix: `ProductInfo`
+bekommt ein neues `detected_language`-Feld; `cardmarket_parsing.
+_parse_product_info()` berechnet es aus den bereits gelesenen Angebotszeilen
+derselben Seite (`_detect_dominant_language()`, häufigste Sprache unter den
+per `_parse_offer_lines()` erkannten Angeboten, wiederverwendet statt neu
+gebaut) -- kein zusätzlicher Netzwerk-Request nötig, da dieselben Zeilen
+ohnehin schon für den Titel gelesen werden. Fällt auf Englisch zurück,
+falls keine Angebote geparst werden konnten (z. B. aktuell ausverkauft).
+Weiterhin voll editierbar im Dialog.
+3) **Bild-Bug:** Nutzer hat einen Screenshot geschickt -- eine manuell
+hinzugefügte Karte (Despotar V, Japanisch) zeigte im Detailpanel ein
+komplett schwarzes Rechteck statt der "Kein Foto"-Platzhalteranzeige
+(`CardArtworkView`) oder eines echten Fotos. Das bestätigt: `photo_path`
+war gesetzt (sonst käme die "Kein Foto"-Anzeige), die gespeicherte Datei
+selbst war aber ein einfarbig schwarzer Screenshot -- die zugrundeliegende
+Chrome-Tab hatte das (lazy-ladende) `<img>` im Moment des `PrintWindow`-
+Aufrufs noch nicht tatsächlich gezeichnet, obwohl das umliegende Text schon
+fertig gerendert war. Fix in `sealed_image_capture.py` (von Karten *und*
+Sealed-Produkten gemeinsam genutzt): `_capture_and_crop()` gibt jetzt das
+gecroppte `QImage` zurück statt es selbst zu speichern; neue
+`_is_suspiciously_blank()` prüft per Stichprobe (9 Punkte im 3x3-Raster) auf
+eine (nahezu) einfarbige Aufnahme. Bei einer verdächtig leeren ersten
+Aufnahme wird nach `_BLANK_RETRY_DELAY` (1s) einmal erneut aufgenommen; ist
+auch der zweite Versuch leer, wird `None` zurückgegeben (wie "kein Bild
+gefunden") statt dauerhaft eine nutzlose schwarze Datei zu speichern.
+Tests: 12 neue insgesamt (2x `_parse_product_info`/
+`_detect_dominant_language`, 1x Busy-Overlay, 2x `prompt_add_manual`-
+Sprachfallback, 6x Blank-Erkennung/Retry-Logik in
+`test_sealed_image_capture.py`, davon 2 bestehende Tests an den geänderten
+`_capture_and_crop()`-Vertrag angepasst), alle grün (148 von 148 relevanten
+Tests inkl. bestehender). `compileall` sauber. Live-Verifikation der
+Blank-Retry-Logik selbst steht noch aus (braucht eine echte, reproduzierbar
+langsame Cardmarket-Seite) -- die Erkennungs-/Retry-Logik ist aber isoliert
+unit-getestet.
+
+**Vorheriger Schritt:** Nutzer hat ein ausführliches Testprotokoll + das
+`application.log` geschickt, mit expliziter Priorität: zuerst die Suchlogik
+grundlegend analysieren/reparieren, danach den Rest. Alle Root Causes live
+gegen die echten pokemontcg.io-/TCGdex-APIs verifiziert (nicht geraten),
+Plan per Plan-Mode entworfen und vom Nutzer abgesegnet. Umgesetzt:
+1) **`app/catalog/pokemontcg_client.py`**: Bindestrich-Bug behoben --
+pokemontcg.io speichert GX/EX-Suffixe live-bestätigt wörtlich mit Bindestrich
+("Umbreon-GX"), die alte Query baute bei mehreren Wörtern aber immer eine
+exakte Leerzeichen-Phrase. `_name_query_clause()` baut jetzt pro Wort eine
+eigene, UND-verknüpfte Wildcard-Klausel (`name:umbreon* name:gx*`) -- findet
+nebenbei auch Kombi-Namen wie "Umbreon & Darkrai-GX".
+2) **`app/services/catalog_search_service.py`**: neue `_SYMBOL_SYNONYMS`-
+Tabelle (`"delta"`→δ, `"gold star"`/`"star"`→★, da pokemontcg.io diese
+Zeichen wörtlich, nie als Klartext speichert) als dritte Lockerungsstufe;
+außerdem einen Kaskaden-Bug behoben, bei dem eine bereits übersetzte
+Kandidatenanfrage (z. B. "Nachtara GX" → "Umbreon GX") nur *einen* direkten
+Suchversuch bekam, statt danach auch noch die schrumpfende
+Präfix-Lockerung -- jetzt läuft diese für jeden gesammelten Kandidaten,
+nicht nur für die ursprüngliche, unübersetzte Anfrage.
+3) **`app/services/price_service.py`**: Preisschätz-Leiter komplett neu nach
+Nutzer-Spezifikation: (1) gleiche Sprache/exakter Zustand, (2) gleiche
+Sprache/Zustand ±1 Stufe (**neuer harter Deckel** -- vorher ungedeckelt,
+der eigentliche Bug), (3) Englisch/exakt, (4) Englisch ±1 Stufe; kein
+"Durchschnitt über alles"-Fallback mehr danach, stattdessen `NO_PRICE`.
+Ein einziges `_price_for_language()` ersetzt drei vorher getrennte,
+asymmetrische Auswahlfunktionen.
+4) **TCGdex-first-Suche (ursprünglich mitgeplant) verworfen:** Live-Test
+zeigte, dass TCGdex- und pokemontcg.io-IDs für neuere Sets NICHT kompatibel
+sind (TCGdex `"sv01"` vs. pokemontcg.io `"sv1"` für Scarlet & Violet; siehe
+auch `tcgdex_set_icon.py`s `"me03"` vs. `"me3"`-Fund) -- der ursprünglich
+geplante ID-Direktabgleich hätte für diese Sets still falsche Karten
+geliefert. Beim Versuch, stattdessen die bestehende
+`tcgdex_name_translation.py`-Fallback-Stufe auf Englisch zu erweitern und
+früher laufen zu lassen, fiel zudem auf, dass der Nutzer genau diese Idee
+schon einmal per `AskUserQuestion` bewusst abgelehnt hatte (zusätzliche
+Hintergrund-Anfragen bei jeder normalen Suche, siehe weiter unten
+"tcgdex.dev nur für Bezeichnungen"-Eintrag) -- Änderung wieder verworfen,
+Modul bleibt exakt wie vorher (nur Westsprachen, letzte Stufe). Da die
+konkret gemeldeten Bugs bereits durch 1)+2) behoben sind, wurden die beiden
+dafür angelegten Aufgaben ersatzlos geschlossen.
+5) **Suche abbrechen bei Schließen des Ergebnis-Dialogs:** `CatalogSearchService.
+search()`/`_search_name_tolerantly()`/`_safe_search()` bekommen ein
+optionales `is_cancelled`-Callback, an einer einzigen Stelle geprüft
+(`_safe_search()`, durch das jeder Netzwerk-Aufruf der Klasse läuft).
+`CatalogSearchWorker.run()` reicht `self.isInterruptionRequested` durch und
+unterdrückt `succeeded`/`failed` danach. `CatalogSearchController` reagiert
+jetzt auf das `finished`-Signal des Ergebnis-Dialogs: läuft die Suche noch,
+wird `requestInterruption()` aufgerufen, die Worker-Signale werden getrennt
+(kein verspätetes Ergebnis rührt mehr an einen längst geschlossenen Dialog)
+und der Worker in eine `_cancelled_workers`-Liste verschoben (bleibt am
+Leben, bis sein echtes `finished` feuert -- ein noch laufender `QThread`
+darf nicht einfach fallengelassen werden), `self._worker` wird sofort frei
+-- behebt das Log-Verhalten "Catalogue search already running -- ignoring
+request", das vorher nach jedem Schließen+Neusuchen auftrat.
+Live-Nachtest gegen die echte API (nicht nur Unit-Tests): "Nachtara GX" und
+"Mewtu GX" liefern jetzt korrekt "Umbreon-GX"/"Mewtwo-GX"-Treffer;
+"Rayquaza Delta"/"Jolteon Gold Star" konnten wegen eines akuten
+pokemontcg.io-Ausfalls (>45s Timeout, auch bei einer trivialen
+Xatu-Testabfrage) nicht mehr live nachgetestet werden, sind aber durch
+gezielte Unit-Tests abgedeckt. Volle Testsuite lief zum Zeitpunkt dieses
+Eintrags noch im Hintergrund (Laufzeit laut Projekt-Konvention 15-40 Min.
+wegen einiger bewusst live-gegen-echte-API testender Tests).
+
+**Vorheriger Schritt:** Release v0.10.0-alpha.1: seit dem letzten Release
 angesammelte Arbeit (Update-Hinweis, Backup-Wiederherstellung, Gesamtwert-
 Verlauf, Wantlist mit Preisalarm, CSV/Excel/JSON-Import, Duplikat-Warnung,
 Wantlist→Sammlung-Übernahme) in einem Commit auf GitHub gebracht, Version
@@ -13,7 +249,7 @@ CHANGELOG.md-Unreleased-Abschnitt zu `[0.10.0-alpha.1]` geschnitten, neue
 zwischenzeitlich testweise gebaut und auf Nutzerwunsch wieder komplett
 entfernt -- daher kein Niederschlag im Diff).
 
-**Vorheriger Schritt:** Kleiner, vom Nutzer nach dem v0.9.0-alpha.1-Release
+Davor: Kleiner, vom Nutzer nach dem v0.9.0-alpha.1-Release
 gemeldeter Bug: Zeilen in der Kartentabelle waren unterschiedlich hoch.
 Ursache gefunden: `CardListPanel.set_cards()` rief bisher
 `self._table.resizeRowsToContents()` auf, was jede Zeile nach ihrem

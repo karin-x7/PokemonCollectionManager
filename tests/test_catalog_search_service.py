@@ -230,7 +230,7 @@ def test_foreign_language_name_is_translated_when_direct_search_finds_nothing(
     # (after translation to "Blastoise") succeeds.
     pokemontcg = FakePokemonTcgClient(responses=[[], [blastoise]], sets=[])
     monkeypatch.setattr(
-        "app.services.catalog_search_service.translate_to_english",
+        "app.catalog.name_translation.translate_to_english",
         lambda term: "Blastoise" if term.casefold() == "turtok" else None,
     )
     service = CatalogSearchService(pokemontcg)
@@ -264,7 +264,7 @@ def test_foreign_language_name_with_card_type_suffix_is_translated(monkeypatch) 
     )
     pokemontcg = FakePokemonTcgClient(responses=[[], [jolteon_vmax]], sets=[])
     monkeypatch.setattr(
-        "app.services.catalog_search_service.translate_to_english",
+        "app.catalog.name_translation.translate_to_english",
         lambda term: "Jolteon" if term.casefold() == "blitza" else None,
     )
     service = CatalogSearchService(pokemontcg)
@@ -290,7 +290,7 @@ def test_shrinking_prefix_search_finds_a_hyphenated_name(monkeypatch) -> None:
         image_large_url=None,
     )
     monkeypatch.setattr(
-        "app.services.catalog_search_service.translate_to_english", lambda term: None
+        "app.catalog.name_translation.translate_to_english", lambda term: None
     )
     monkeypatch.setattr(
         "app.services.catalog_search_service.translate_foreign_card_name", lambda term: None
@@ -327,7 +327,7 @@ def test_shrinking_prefix_search_filters_out_unrelated_names(monkeypatch) -> Non
         image_large_url=None,
     )
     monkeypatch.setattr(
-        "app.services.catalog_search_service.translate_to_english", lambda term: None
+        "app.catalog.name_translation.translate_to_english", lambda term: None
     )
     monkeypatch.setattr(
         "app.services.catalog_search_service.translate_foreign_card_name", lambda term: None
@@ -364,7 +364,7 @@ def test_shrinking_prefix_search_tries_individual_words_not_just_the_full_prefix
         image_large_url=None,
     )
     monkeypatch.setattr(
-        "app.services.catalog_search_service.translate_to_english", lambda term: None
+        "app.catalog.name_translation.translate_to_english", lambda term: None
     )
     monkeypatch.setattr(
         "app.services.catalog_search_service.translate_foreign_card_name", lambda term: None
@@ -405,7 +405,7 @@ def test_foreign_trainer_card_name_is_translated_via_tcgdex_when_all_else_fails(
         image_large_url=None,
     )
     monkeypatch.setattr(
-        "app.services.catalog_search_service.translate_to_english", lambda term: None
+        "app.catalog.name_translation.translate_to_english", lambda term: None
     )
     monkeypatch.setattr(
         "app.services.catalog_search_service.translate_foreign_card_name",
@@ -437,7 +437,7 @@ def test_shrinking_prefix_tier_is_skipped_once_tcgdex_translation_already_succee
         image_large_url=None,
     )
     monkeypatch.setattr(
-        "app.services.catalog_search_service.translate_to_english", lambda term: None
+        "app.catalog.name_translation.translate_to_english", lambda term: None
     )
     monkeypatch.setattr(
         "app.services.catalog_search_service.translate_foreign_card_name",
@@ -471,7 +471,7 @@ def test_tcgdex_translation_tier_is_skipped_once_species_translation_already_suc
         image_large_url=None,
     )
     monkeypatch.setattr(
-        "app.services.catalog_search_service.translate_to_english",
+        "app.catalog.name_translation.translate_to_english",
         lambda term: "Blastoise" if term.casefold() == "turtok" else None,
     )
 
@@ -493,7 +493,7 @@ def test_tcgdex_translation_tier_is_skipped_once_species_translation_already_suc
 
 def test_no_tcgdex_translation_found_leaves_results_empty(monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.services.catalog_search_service.translate_to_english", lambda term: None
+        "app.catalog.name_translation.translate_to_english", lambda term: None
     )
     monkeypatch.setattr(
         "app.services.catalog_search_service.translate_foreign_card_name", lambda term: None
@@ -504,6 +504,81 @@ def test_no_tcgdex_translation_found_leaves_results_empty(monkeypatch) -> None:
     results = service.search("Entschlossenheit")
 
     assert results == []
+
+
+def test_symbol_synonym_resolves_a_delta_species_card(monkeypatch) -> None:
+    # Real, live-confirmed case: pokemontcg.io stores this card's name as
+    # "Rayquaza δ" -- the literal symbol, never the plain word "Delta".
+    rayquaza_delta = CatalogCard(
+        external_id="ex12-97",
+        name="Rayquaza δ",
+        set_name="Dragon Frontiers",
+        set_code="ex12",
+        card_number="97",
+        rarity="Rare Holo",
+        image_small_url=None,
+        image_large_url=None,
+    )
+    monkeypatch.setattr(
+        "app.catalog.name_translation.translate_to_english", lambda term: None
+    )
+    monkeypatch.setattr(
+        "app.services.catalog_search_service.translate_foreign_card_name", lambda term: None
+    )
+    # Direct "Rayquaza Delta" search finds nothing; substituting the symbol
+    # ("Rayquaza δ") does.
+    pokemontcg = FakePokemonTcgClient(responses=[[], [rayquaza_delta]], sets=[])
+    service = CatalogSearchService(pokemontcg)
+
+    results = service.search("Rayquaza Delta")
+
+    assert results == [rayquaza_delta]
+    assert pokemontcg.calls == [
+        {"name": "Rayquaza Delta", "set_id": None, "number": None},
+        {"name": "Rayquaza δ", "set_id": None, "number": None},
+    ]
+
+
+def test_translated_candidate_gets_shrinking_prefix_loosening_too(monkeypatch) -> None:
+    """Real, live-confirmed cascade gap: "Nachtara GX" (German Umbreon-GX)
+
+    translates fine to "Umbreon GX", but pokemontcg.io stores the name with
+    a hyphen ("Umbreon-GX") -- the direct translated-candidate search still
+    fails on its own. Before this fix, only the original, untranslated
+    "Nachtara GX" ever got the shrinking-prefix loosening applied to it,
+    which can never match an English-only catalogue no matter how much it's
+    shortened. The translated candidate must get the same loosening.
+    """
+    umbreon_gx = CatalogCard(
+        external_id="skg-h32",
+        name="Umbreon-GX",
+        set_name="Hidden Fates",
+        set_code="sm115",
+        card_number="SV65",
+        rarity="Rare Secret",
+        image_small_url=None,
+        image_large_url=None,
+    )
+    monkeypatch.setattr(
+        "app.catalog.name_translation.translate_to_english",
+        lambda term: "Umbreon" if term.casefold() == "nachtara" else None,
+    )
+    monkeypatch.setattr(
+        "app.services.catalog_search_service.translate_foreign_card_name", lambda term: None
+    )
+    # First call (raw "Nachtara GX") empty, second (translated "Umbreon GX")
+    # also empty, third (its own shrunk "UmbreonGX" prefix) finally succeeds.
+    pokemontcg = FakePokemonTcgClient(responses=[[], [], [umbreon_gx]], sets=[])
+    service = CatalogSearchService(pokemontcg)
+
+    results = service.search("Nachtara GX")
+
+    assert results == [umbreon_gx]
+    assert pokemontcg.calls == [
+        {"name": "Nachtara GX", "set_id": None, "number": None},
+        {"name": "Umbreon GX", "set_id": None, "number": None},
+        {"name": "UmbreonGX", "set_id": None, "number": None},
+    ]
 
 
 # --- Base Set Normal/Shadowless variant splitting --------------------------- #

@@ -97,7 +97,11 @@ class CardDetailPanel(QWidget):
         layout.addWidget(header)
 
         self._artwork = CardArtworkView()
-        layout.addWidget(self._artwork, stretch=1)
+        # No stretch factor: CardArtworkView now has a fixed height of its
+        # own (see its own docstring/comment), so a stretch weight here
+        # would be meaningless -- keeping it would misleadingly suggest this
+        # widget still grows to fill leftover space.
+        layout.addWidget(self._artwork)
         layout.addSpacing(20)
 
         form = QFormLayout()
@@ -114,7 +118,17 @@ class CardDetailPanel(QWidget):
             if field == "Set":
                 self._set_icon_label = QLabel()
                 self._set_icon_label.setFixedSize(18, 18)
-                self._set_icon_label.setScaledContents(True)
+                # No setScaledContents(True): live-reported bug, a visible
+                # dark box around the set icon here (but not in the card
+                # table, which never stretches its icon this way) -- letting
+                # QLabel itself additionally stretch an already-sized pixmap
+                # is a second, redundant scale on top of QIcon.pixmap()'s own
+                # (see below), and doesn't go through the same alpha-aware
+                # scaling path the table's own icon rendering does. Asking
+                # the QIcon for exactly the label's own size and displaying
+                # it as-is (QLabel's default centred alignment) mirrors what
+                # item views already do internally, and needs no stretch at
+                # all.
                 self._set_icon_label.hide()
                 row = QWidget()
                 row.setObjectName("TransparentGroup")
@@ -154,6 +168,18 @@ class CardDetailPanel(QWidget):
         self._cardmarket_search_button.setEnabled(False)
         self._cardmarket_search_button.clicked.connect(self._on_cardmarket_search_button_clicked)
         layout.addWidget(self._cardmarket_search_button)
+
+        # Claims all leftover vertical space on a panel taller than its
+        # content needs. Without this, Qt distributes that leftover space
+        # among the header/artwork/form/buttons themselves (none of them
+        # fixed-size except the artwork) -- live-reported: the artwork's
+        # position visibly shifted up/down between cards depending on how
+        # many lines the "Price quality" rationale wrapped to, since a
+        # longer rationale left less surplus to redistribute above it. A
+        # trailing stretch absorbs that surplus itself instead, so every
+        # widget above it keeps its natural size regardless of how much
+        # blank space remains at the bottom.
+        layout.addStretch(1)
 
     def show_empty(self) -> None:
         """Reset all fields to the empty placeholder value."""

@@ -1,10 +1,23 @@
 """Business logic for determining and recording a card's Cardmarket price.
 
 Applies the tolerant matching ladder from :class:`~app.models.enums.
-PriceQuality`: an exact language+condition match is preferred, falling back
-step by step to a looser estimate, and finally to "no price found" — never a
-hard failure. This is the only layer the GUI is allowed to call into for
-price updates.
+PriceQuality`, in this fixed priority order (user-specified, live-reported
+after the previous, uncapped "nearest condition" logic once matched a Poor
+Cardmarket offer to a Near Mint card):
+
+1. Same language, exact condition -> ``EXACT``.
+2. Same language, condition +-1 step (never more) -> ``ESTIMATED_FROM_CONDITION``.
+3. English, exact condition -> ``ESTIMATED_FROM_LANGUAGE`` (skipped entirely
+   if the card's own language already *is* English -- tier 1/2 already
+   covered that -- or if it's one of the market-divergent languages, see
+   ``app.pricing.cardmarket_parsing.is_market_divergent_language``: a
+   Japanese/Korean/Chinese card is never priced from an English offer,
+   since unlike German vs. English these can have wildly different market
+   values for what Cardmarket otherwise treats as the same product).
+4. English, condition +-1 step -> ``ESTIMATED_FROM_LANGUAGE`` (same skip).
+5. ``NO_PRICE`` -- deliberately no further "average over everything, ignore
+   language/condition entirely" fallback; a guess with no distance limit at
+   all is worse than admitting no price was found.
 
 Each ladder step reads a separately Cardmarket-filtered page (via
 ``language``/``minCondition`` query parameters — see
@@ -45,6 +58,7 @@ from app.pricing.browser_price_reader import (
     BrowserPriceReaderError,
     build_filtered_url,
     find_alternate_version_url,
+    is_market_divergent_language,
     is_unresolved_pokemontcg_shortlink,
     read_offers_for_card,
     resolve_cardmarket_url,
@@ -68,88 +82,105 @@ _VERSION_SWITCH_DELAY_SECONDS = 3.0
 
 _PriceResult = tuple[float | None, PriceQuality, str]
 
+#: The hard cap on how far an estimated condition may deviate from the
+#: card's own -- user-specified: a wildly different condition (e.g. Poor
+#: standing in for Near Mint) is worse than no estimate at all. Distances
+#: are measured via ``Condition.distance_to``, already used for "nearest"
+#: selection before this cap existed.
+_MAX_CONDITION_DISTANCE = 1
 
-def _exact_or_nearest_condition(
-    card: Card, offers: list[CardmarketOffer], language_already_filtered: bool
+
+def _price_for_language(
+    card: Card,
+    offers: list[CardmarketOffer],
+    target_language: Language,
+    is_native_language: bool,
 ) -> _PriceResult | None:
-    """Try EXACT, then ESTIMATED_FROM_CONDITION, against same-language offers.
+    """Try exact condition, then condition +-1 (never more), against
+    ``offers`` scoped to ``target_language``.
 
-    ``offers`` must already be scoped to ``card.language`` — either because
-    Cardmarket's own ``language`` filter guarantees it, or (when the card's
-    language has no Cardmarket filter id, e.g. Japanese) because it was
-    filtered client-side beforehand. Returns ``None`` if neither tier finds
-    anything, so the caller can fall through to the next ladder step.
+    Shared by both halves of the ladder: ``is_native_language=True`` scores
+    the card's *own* language (tiers 1/2, quality EXACT/
+    ESTIMATED_FROM_CONDITION), ``is_native_language=False`` scores the
+    English fallback (tiers 3/4, always ESTIMATED_FROM_LANGUAGE since the
+    print language itself already differs from the card's own). Always
+    filters ``offers`` by ``target_language`` itself -- regardless of
+    whether the page was already server-filtered by Cardmarket's own
+    ``language`` parameter (see ``build_filtered_url``) or not (e.g. a
+    language with no Cardmarket filter id at all, such as Japanese) -- so
+    callers never need to track that separately. Returns ``None`` if
+    nothing within the +-1 cap exists, so the caller can fall through to
+    the next ladder tier.
     """
-    if not language_already_filtered:
-        offers = [o for o in offers if o.language is card.language]
-    if not offers:
+    scoped = [o for o in offers if o.language is target_language]
+    if not scoped:
         return None
 
-    exact = [o for o in offers if o.condition is card.condition]
+    exact = [o for o in scoped if o.condition is card.condition]
     if exact:
         cheapest = min(exact, key=lambda o: o.price)
+        if is_native_language:
+            return (
+                cheapest.price,
+                PriceQuality.EXACT,
+                # No "Exact match:" prefix here -- PriceQuality.EXACT's own
+                # label already says that; a live-reported UI change started
+                # showing the label and this rationale together, which
+                # duplicated the phrase ("Exact match — Exact match: English,
+                # Near Mint."). Just the specific language/condition it
+                # matched against.
+                f"{target_language.label}, {card.condition.label}.",
+            )
         return (
             cheapest.price,
-            PriceQuality.EXACT,
-            # No "Exact match:" prefix here -- PriceQuality.EXACT's own
-            # label already says that; a live-reported UI change started
-            # showing the label and this rationale together, which
-            # duplicated the phrase ("Exact match — Exact match: English,
-            # Near Mint."). Just the specific language/condition it
-            # matched against.
-            f"{card.language.label}, {card.condition.label}.",
+            PriceQuality.ESTIMATED_FROM_LANGUAGE,
+            # No "Geschätzt aus"/"Estimated from" prefix -- same reasoning as
+            # the EXACT tier above: PriceQuality.ESTIMATED_FROM_LANGUAGE's own
+            # label already says "Estimated from a different language", so
+            # repeating it here just made this text longer than it needed to
+            # be (live-reported: it visually overflowed the detail panel).
+            tr("{found_language} statt {expected_language}, gleicher Zustand ({condition}).").format(
+                found_language=target_language.label,
+                expected_language=card.language.label,
+                condition=card.condition.label,
+            ),
         )
 
-    with_condition = [o for o in offers if o.condition is not None]
+    with_condition = [o for o in scoped if o.condition is not None]
     if with_condition:
         nearest = min(
             with_condition, key=lambda o: (o.condition.distance_to(card.condition), o.price)
         )
+        if nearest.condition.distance_to(card.condition) > _MAX_CONDITION_DISTANCE:
+            return None
+        if is_native_language:
+            return (
+                nearest.price,
+                PriceQuality.ESTIMATED_FROM_CONDITION,
+                # No "Geschätzt aus"/"Estimated from" prefix -- same reasoning
+                # as the EXACT tier above: PriceQuality.ESTIMATED_FROM_
+                # CONDITION's own label already says "Estimated from a
+                # different condition".
+                tr("{language}, {found_condition} statt {expected_condition}.").format(
+                    language=target_language.label,
+                    found_condition=nearest.condition.label,
+                    expected_condition=card.condition.label,
+                ),
+            )
         return (
             nearest.price,
-            PriceQuality.ESTIMATED_FROM_CONDITION,
-            tr("Geschätzt aus {language}, Zustand {found_condition} statt {expected_condition}.").format(
-                language=card.language.label,
+            PriceQuality.ESTIMATED_FROM_LANGUAGE,
+            tr(
+                "{found_language}, {found_condition} statt {expected_language}, "
+                "{expected_condition}."
+            ).format(
+                found_language=target_language.label,
                 found_condition=nearest.condition.label,
+                expected_language=card.language.label,
                 expected_condition=card.condition.label,
             ),
         )
     return None
-
-
-def _same_condition_other_language(card: Card, offers: list[CardmarketOffer]) -> _PriceResult | None:
-    """Try ESTIMATED_FROM_LANGUAGE: same condition, cheapest regardless of language."""
-    same_condition = [o for o in offers if o.condition is card.condition]
-    if not same_condition:
-        return None
-    cheapest = min(same_condition, key=lambda o: o.price)
-    language_label = (
-        cheapest.language.label if cheapest.language is not None else tr("unbekannter Sprache")
-    )
-    return (
-        cheapest.price,
-        PriceQuality.ESTIMATED_FROM_LANGUAGE,
-        tr(
-            "Geschätzt aus {found_language} statt {expected_language}, "
-            "gleicher Zustand ({condition})."
-        ).format(
-            found_language=language_label,
-            expected_language=card.language.label,
-            condition=card.condition.label,
-        ),
-    )
-
-
-def _average(offers: list[CardmarketOffer]) -> _PriceResult:
-    """AVERAGE: mean price over every offer found, ignoring condition/language."""
-    if not offers:
-        return None, PriceQuality.NO_PRICE, tr("Keine Angebote auf Cardmarket gefunden.")
-    average = sum(o.price for o in offers) / len(offers)
-    return (
-        round(average, 2),
-        PriceQuality.AVERAGE,
-        tr("Durchschnitt über alle gefundenen Angebote, unabhängig von Zustand und Sprache."),
-    )
 
 
 class PriceService:
@@ -187,32 +218,11 @@ class PriceService:
 
         if card.manual_cardmarket_url:
             # A user-supplied override always wins -- typically set for a
-            # Japanese/Korean/Chinese print (see the check below) once the
-            # user has looked up the correct, language-specific Cardmarket
-            # product themselves.
+            # card whose pokemontcg.io-sourced link points at the wrong
+            # product entirely (see ``has_ambiguous_cardmarket_variants``
+            # below for the one other place that happens), once the user has
+            # looked up the correct Cardmarket product themselves.
             real_url = card.manual_cardmarket_url
-        elif not supports_language_filter(card.language):
-            # Cardmarket lists Japanese/Korean/Chinese prints as entirely
-            # separate products (often under the *Japanese* set's own name,
-            # e.g. Neo Revelation's Ho-Oh is "Awakening Legends" there), not
-            # as a language filter on the same product page. pokemontcg.io's
-            # own cardmarket_url always points at the Western product --
-            # silently falling through the ladder below against that URL
-            # would misprice this card from unrelated Western copies. Bail
-            # out with a clear rationale instead of guessing.
-            return self._record(
-                card,
-                None,
-                PriceQuality.NO_PRICE,
-                tr(
-                    "Automatische Preisermittlung für {language} wird nicht "
-                    "unterstützt (Cardmarket führt diesen Druck als "
-                    "eigenständiges Produkt). Trage unter „Eigener "
-                    "Cardmarket-Link“ den korrekten Link ein, um die "
-                    "Preisermittlung für diese Karte zu aktivieren."
-                ).format(language=card.language.label)
-                + self._designation_hint(card),
-            )
         else:
             if card.cardmarket_url and not (
                 has_ambiguous_cardmarket_variants(card.set_code)
@@ -341,14 +351,17 @@ class PriceService:
             "reverse_holo": card.is_reverse_holo,
         }
 
-        # Step 1: same language *and* at-or-better condition, both
-        # server-filtered together where Cardmarket supports it. A live
-        # smoke test found that filtering by language alone could still
-        # return every condition Cardmarket has in stock -- for a card with
-        # many cheap, worse-than-requested offers, those buried the
-        # relevant (at-or-better) ones further down the page than this
-        # reader actually captures. Combining both filters keeps the result
-        # small enough that this can't happen.
+        # Tier 1+2: same language, exact condition then +-1 (never more).
+        # Two reads, not one: at-or-better is server-filtered together with
+        # language where Cardmarket supports it -- a live smoke test found
+        # that filtering by language alone could still return every
+        # condition Cardmarket has in stock, and for a card with many cheap,
+        # worse-than-requested offers, those buried the relevant ones
+        # further down the page than this reader actually captures. Only
+        # falls through to the broader, condition-unfiltered read below if
+        # tier 1 (which structurally can't see anything *worse* than the
+        # card's own condition, only same-or-better) doesn't find a hit
+        # within the +-1 cap either.
         language_filtered = supports_language_filter(card.language)
         at_or_better_url = build_filtered_url(
             base_url,
@@ -361,15 +374,10 @@ class PriceService:
         except BrowserPriceReaderError as exc:
             return None, PriceQuality.NO_PRICE, str(exc)
 
-        result = _exact_or_nearest_condition(card, offers, language_filtered)
+        result = _price_for_language(card, offers, card.language, is_native_language=True)
         if result is not None:
             return result
 
-        # Step 2: nothing at or better exists in this language -- widen to
-        # every condition to find the nearest *worse* one instead. Only
-        # reached when step 1 found literally no stock at all in this
-        # language at the requested condition or better, so it's rare in
-        # practice; the pagination risk step 1 avoids is accepted here.
         same_language_url = build_filtered_url(
             base_url, language=card.language if language_filtered else None, **extras
         )
@@ -378,43 +386,75 @@ class PriceService:
         except BrowserPriceReaderError as exc:
             return None, PriceQuality.NO_PRICE, str(exc)
 
-        result = _exact_or_nearest_condition(card, offers, language_filtered)
+        result = _price_for_language(card, offers, card.language, is_native_language=True)
         if result is not None:
             return result
 
-        # Step 2.5: some vintage sets (e.g. Base Set) list a card's language
-        # as an entirely separate Cardmarket *product* under a sibling
-        # "-V<n>-" URL, not just a filter on this one page. Reaching here
-        # with zero offers at all in this language (not just no exact/near
-        # match, but the broadest same-language read above coming back
-        # completely empty) is the signature of being on the wrong product
-        # entirely, not just "no stock right now" -- worth one, and only
-        # one, alternate-version tab before falling back to any-language.
+        # Some vintage sets (e.g. Base Set) list a card's language as an
+        # entirely separate Cardmarket *product* under a sibling "-V<n>-"
+        # URL, not just a filter on this one page. Reaching here with zero
+        # offers at all in this language (not just no exact/near match, but
+        # the broadest same-language read above coming back completely
+        # empty) is the signature of being on the wrong product entirely,
+        # not just "no stock right now" -- worth one, and only one,
+        # alternate-version tab before falling through to the English tier.
         if language_filtered and not offers:
             alt_result = self._try_alternate_version(card, base_url, extras)
             if alt_result is not None:
                 return alt_result
 
-        # Step 3: same condition or better (server-filtered), any language.
-        condition_url = build_filtered_url(base_url, min_condition=card.condition, **extras)
-        try:
-            offers = self._offer_reader(condition_url, card.name)
-        except BrowserPriceReaderError as exc:
-            return None, PriceQuality.NO_PRICE, str(exc)
+        # Tier 3+4: English fallback, exact condition then +-1 -- skipped
+        # entirely if the card's own language already *is* English (tier 1+2
+        # above already covered that), or if it's one of the market-divergent
+        # languages (see is_market_divergent_language's own docs): a
+        # Japanese/Korean/Chinese card must never be silently priced from an
+        # English offer, even within the usual condition-tolerance cap --
+        # unlike German vs. English, these can have wildly different market
+        # values for what Cardmarket otherwise treats as the same product.
+        if card.language is not Language.ENGLISH and not is_market_divergent_language(
+            card.language
+        ):
+            english_at_or_better_url = build_filtered_url(
+                base_url, language=Language.ENGLISH, min_condition=card.condition, **extras
+            )
+            try:
+                offers = self._offer_reader(english_at_or_better_url, card.name)
+            except BrowserPriceReaderError as exc:
+                return None, PriceQuality.NO_PRICE, str(exc)
 
-        result = _same_condition_other_language(card, offers)
-        if result is not None:
-            return result
+            result = _price_for_language(card, offers, Language.ENGLISH, is_native_language=False)
+            if result is not None:
+                return result
 
-        # Step 4: nothing matched language or condition — average over
-        # every offer on the page (still scoped to the extras, but neither
-        # language nor condition).
-        extras_only_url = build_filtered_url(base_url, **extras)
-        try:
-            offers = self._offer_reader(extras_only_url, card.name)
-        except BrowserPriceReaderError as exc:
-            return None, PriceQuality.NO_PRICE, str(exc)
-        return _average(offers)
+            english_any_condition_url = build_filtered_url(
+                base_url, language=Language.ENGLISH, **extras
+            )
+            try:
+                offers = self._offer_reader(english_any_condition_url, card.name)
+            except BrowserPriceReaderError as exc:
+                return None, PriceQuality.NO_PRICE, str(exc)
+
+            result = _price_for_language(card, offers, Language.ENGLISH, is_native_language=False)
+            if result is not None:
+                return result
+
+        if is_market_divergent_language(card.language):
+            return (
+                None,
+                PriceQuality.NO_PRICE,
+                tr(
+                    "Keine {language}-Angebote auf Cardmarket gefunden. Ein "
+                    "Preis aus einer anderen Sprache wird nicht geschätzt, da "
+                    "sich Marktpreise für {language} stark unterscheiden "
+                    "können."
+                ).format(language=card.language.label)
+                + self._designation_hint(card),
+            )
+
+        # Nothing within the +-1 cap in either the card's own language or
+        # English -- deliberately NO_PRICE here, not a guess averaged over
+        # everything regardless of condition/language (see module docstring).
+        return None, PriceQuality.NO_PRICE, tr("Keine Angebote auf Cardmarket gefunden.")
 
     def _try_alternate_version(
         self, card: Card, base_url: str, extras: dict[str, bool]
@@ -443,7 +483,7 @@ class PriceService:
             offers = self._offer_reader(at_or_better_url, card.name)
         except BrowserPriceReaderError:
             offers = []
-        result = _exact_or_nearest_condition(card, offers, language_already_filtered=True)
+        result = _price_for_language(card, offers, card.language, is_native_language=True)
 
         if result is None:
             same_language_url = build_filtered_url(alternate_url, language=card.language, **extras)
@@ -451,7 +491,7 @@ class PriceService:
                 offers = self._offer_reader(same_language_url, card.name)
             except BrowserPriceReaderError:
                 offers = []
-            result = _exact_or_nearest_condition(card, offers, language_already_filtered=True)
+            result = _price_for_language(card, offers, card.language, is_native_language=True)
 
         if result is not None:
             self._cards.update_cardmarket_url(card.id, alternate_url)

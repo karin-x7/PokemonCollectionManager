@@ -19,6 +19,8 @@ import sys
 
 if sys.platform == "win32":
     from app.pricing.browser._windows import (
+        open_cardmarket_link,
+        open_cardmarket_search,
         read_offers_for_card,
         read_product_info,
         read_sealed_offers_for_card,
@@ -28,6 +30,8 @@ if sys.platform == "win32":
     )
 elif sys.platform == "darwin":
     from app.pricing.browser._macos import (
+        open_cardmarket_link,
+        open_cardmarket_search,
         read_offers_for_card,
         read_product_info,
         read_sealed_offers_for_card,
@@ -42,6 +46,8 @@ else:
     # works fully on an unsupported platform (manual price entry, CSV/Excel
     # import/export, statistics, wantlist, ...).
     from app.pricing.browser._unsupported import (
+        open_cardmarket_link,
+        open_cardmarket_search,
         read_offers_for_card,
         read_product_info,
         read_sealed_offers_for_card,
@@ -51,6 +57,8 @@ else:
     )
 
 __all__ = [
+    "open_cardmarket_link",
+    "open_cardmarket_search",
     "read_offers_for_card",
     "read_product_info",
     "read_sealed_offers_for_card",

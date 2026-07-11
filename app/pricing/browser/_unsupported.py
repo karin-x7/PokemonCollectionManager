@@ -58,3 +58,11 @@ def read_sealed_offers_for_card(
     url: str, match_hint: str, timeout: float = 30.0
 ) -> list[SealedOffer]:
     raise _unsupported()
+
+
+def open_cardmarket_link(url: str) -> None:
+    raise _unsupported()
+
+
+def open_cardmarket_search(name: str) -> None:
+    raise _unsupported()

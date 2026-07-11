@@ -60,6 +60,13 @@ def test_show_photo_loads_pixmap(qapp, sample_image_path) -> None:
     assert not view._pixmap.isNull()
 
 
+def test_height_is_fixed_not_a_min_max_range(qapp) -> None:
+    # Mirrors the identical fix/test in test_card_artwork_view.py.
+    view = SealedArtworkView()
+
+    assert view.minimumHeight() == view.maximumHeight()
+
+
 def test_paint_event_does_not_crash_in_any_state(qapp, sample_image_path) -> None:
     view = SealedArtworkView()
     view.resize(200, 200)

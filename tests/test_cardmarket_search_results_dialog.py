@@ -64,6 +64,24 @@ def test_set_results_with_empty_list_shows_empty_state(qapp) -> None:
     dialog.set_results([])
     assert not dialog._empty_label.isHidden()
     assert not dialog._confirm_button.isEnabled()
+    assert not dialog._manual_search_button.isHidden()
+
+
+def test_set_results_with_matches_hides_the_manual_search_button(
+    dialog: CardmarketSearchResultsDialog,
+) -> None:
+    assert dialog._manual_search_button.isHidden()
+
+
+def test_manual_search_button_clicked_emits_manual_search_requested(qapp) -> None:
+    dialog = CardmarketSearchResultsDialog()
+    dialog.set_results([])
+    received = []
+    dialog.manual_search_requested.connect(lambda: received.append(True))
+
+    dialog._manual_search_button.click()
+
+    assert received == [True]
 
 
 def test_shows_a_loading_state_before_any_results_arrive(qapp) -> None:

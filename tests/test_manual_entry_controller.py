@@ -151,6 +151,33 @@ def test_failed_lookup_shows_message_and_does_not_forward(
     assert "Seite nicht erkannt." in main_window.statusBar().currentMessage()
 
 
+def test_busy_overlay_shown_during_lookup_and_hidden_afterward(
+    monkeypatch, main_window: MainWindow
+) -> None:
+    # Real, live-reported bug: the only feedback during the (sometimes
+    # several-seconds-long) page read was an easy-to-miss status-bar
+    # message -- price lookups already show a busy overlay for the same
+    # kind of browser-automation wait (see PriceController._start()).
+    card_controller = FakeCardController()
+    controller = ManualEntryController(main_window, card_controller)
+    monkeypatch.setattr(
+        "app.ui.controllers.manual_entry_controller.ManualEntryDialog", FakeAcceptedDialog()
+    )
+    monkeypatch.setattr(
+        "app.ui.workers.product_info_worker.read_product_info", lambda url, **kwargs: _INFO
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(
+        main_window.busy_overlay, "show_busy", lambda message: calls.append(("show", message))
+    )
+    monkeypatch.setattr(main_window.busy_overlay, "hide_busy", lambda: calls.append(("hide",)))
+
+    controller.start()
+
+    assert calls[0][0] == "show"
+    assert calls[-1] == ("hide",)
+
+
 def test_a_second_request_while_running_is_ignored(monkeypatch, main_window: MainWindow) -> None:
     card_controller = FakeCardController()
     controller = ManualEntryController(main_window, card_controller)

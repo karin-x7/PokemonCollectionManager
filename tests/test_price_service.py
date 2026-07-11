@@ -196,6 +196,11 @@ def test_estimated_from_condition_picks_nearest_condition_same_language(
     # LIGHT_PLAYED (distance 1) is nearer to GOOD than NEAR_MINT (2) or POOR (3).
     assert updated.current_price == 10.0
     assert updated.price_quality is PriceQuality.ESTIMATED_FROM_CONDITION
+    # Live-reported: the rationale used to repeat "Estimated from" (already
+    # said by the quality label itself, shown right alongside it), making
+    # the combined text long enough to overflow the detail panel.
+    assert "stimated" not in updated.price_rationale
+    assert "Light Played" in updated.price_rationale
 
 
 def test_falls_back_to_worse_condition_same_language_when_nothing_at_or_better(
@@ -294,12 +299,16 @@ def test_alternate_version_not_tried_when_step_two_already_found_offers(
 ) -> None:
     """Reaching tier 2 with *some* offers (even if none match condition
 
-    exactly) means the language genuinely has stock on this product -- not
-    the "wrong product entirely" signature this fallback looks for."""
+    within the +-1 cap) means the language genuinely has stock on this
+    product -- not the "wrong product entirely" signature this fallback
+    looks for."""
     card = _card(
         temp_db, collection_id, language=Language.GERMAN, condition=Condition.GOOD,
         cardmarket_url=_VINTAGE_URL,
     )
+    # POOR is 3 steps from GOOD -- past the +-1 cap, so this can't be used
+    # as an estimate, but its mere presence still proves the language has
+    # real stock, so the alternate-version fallback is correctly skipped.
     tier2_offers = [
         CardmarketOffer(seller="a", condition=Condition.POOR, language=Language.GERMAN, price=1.0)
     ]
@@ -308,23 +317,26 @@ def test_alternate_version_not_tried_when_step_two_already_found_offers(
 
     updated = service.update_price_for_card(card.id)
 
-    assert updated.current_price == 1.0
-    assert len(reader.calls) == 2  # no alternate-version attempt made
+    assert updated.current_price is None
+    assert updated.price_quality is PriceQuality.NO_PRICE
+    # tier1, tier2, English at-or-better, English any-condition -- no
+    # alternate-version attempt in there (that would add 2 more calls).
+    assert len(reader.calls) == 4
     assert updated.cardmarket_url == _VINTAGE_URL  # unchanged
 
 
-def test_alternate_version_failing_too_falls_through_to_any_language_step(
+def test_alternate_version_failing_too_falls_through_to_the_english_tier(
     temp_db: Database, collection_id: int
 ) -> None:
     card = _card(
         temp_db, collection_id, language=Language.GERMAN, condition=Condition.GOOD,
         cardmarket_url=_VINTAGE_URL,
     )
-    tier3_offers = [
+    english_at_or_better_offers = [
         CardmarketOffer(seller="a", condition=Condition.GOOD, language=Language.ENGLISH, price=99.0)
     ]
-    # tier1, tier2 (V2, empty), alt tier1, alt tier2 (V1, empty too), tier3 (any language, V2)
-    reader = FakeOfferReader([], [], [], [], tier3_offers)
+    # tier1, tier2 (V2, empty), alt tier1, alt tier2 (V1, empty too), English at-or-better (V2)
+    reader = FakeOfferReader([], [], [], [], english_at_or_better_offers)
     service = _service(temp_db, reader)
 
     updated = service.update_price_for_card(card.id)
@@ -332,10 +344,10 @@ def test_alternate_version_failing_too_falls_through_to_any_language_step(
     assert updated.current_price == 99.0
     assert updated.price_quality is PriceQuality.ESTIMATED_FROM_LANGUAGE
     assert len(reader.calls) == 5
-    # The original (unconfirmed) URL is used for tier 3 -- the alternate
-    # never panned out, so it must not be adopted.
+    # The original (unconfirmed) URL is used for the English tier -- the
+    # alternate never panned out, so it must not be adopted.
     assert reader.calls[4][0] == build_filtered_url(
-        _VINTAGE_URL, min_condition=Condition.GOOD, **_NO_EXTRAS
+        _VINTAGE_URL, language=Language.ENGLISH, min_condition=Condition.GOOD, **_NO_EXTRAS
     )
     assert updated.cardmarket_url == _VINTAGE_URL
 
@@ -365,24 +377,31 @@ def test_alternate_version_switch_applies_a_deliberate_delay(
     assert sleep_calls == [3.0]
 
 
-def test_estimated_from_language_picks_cheapest_same_condition_other_language(
+def test_estimated_from_language_picks_english_when_no_native_language_stock(
     temp_db: Database, collection_id: int
 ) -> None:
     card = _card(temp_db, collection_id, language=Language.GERMAN, condition=Condition.GOOD)
     # Tier 1 (language=German + minCondition=Good): no stock at all.
     # Tier 2 (language=German, any condition): still no German stock at all.
-    # Tier 3 (minCondition=Good, any language): other-language GOOD offers.
-    tier3_offers = [
+    # English tier (language=English + minCondition=Good): an exact-condition
+    # English offer -- a French offer at a lower price is present too, but
+    # must be ignored entirely: the ladder only ever falls back to English
+    # specifically now, never "any other language" (user-specified).
+    english_offers = [
         CardmarketOffer(seller="a", condition=Condition.GOOD, language=Language.ENGLISH, price=8.0),
         CardmarketOffer(seller="b", condition=Condition.GOOD, language=Language.FRENCH, price=6.0),
     ]
-    reader = FakeOfferReader([], [], tier3_offers)
+    reader = FakeOfferReader([], [], english_offers)
     service = _service(temp_db, reader)
 
     updated = service.update_price_for_card(card.id)
 
-    assert updated.current_price == 6.0
+    assert updated.current_price == 8.0
     assert updated.price_quality is PriceQuality.ESTIMATED_FROM_LANGUAGE
+    # Same "no redundant Estimated-from prefix" fix as the ESTIMATED_FROM_
+    # CONDITION case above.
+    assert "stimated" not in updated.price_rationale
+    assert "English" in updated.price_rationale
     assert len(reader.calls) == 3
     assert reader.calls[0][0] == build_filtered_url(
         _CARDMARKET_URL, language=Language.GERMAN, min_condition=Condition.GOOD, **_NO_EXTRAS
@@ -391,46 +410,51 @@ def test_estimated_from_language_picks_cheapest_same_condition_other_language(
         _CARDMARKET_URL, language=Language.GERMAN, **_NO_EXTRAS
     )
     assert reader.calls[2][0] == build_filtered_url(
-        _CARDMARKET_URL, min_condition=Condition.GOOD, **_NO_EXTRAS
+        _CARDMARKET_URL, language=Language.ENGLISH, min_condition=Condition.GOOD, **_NO_EXTRAS
     )
 
 
-def test_average_used_when_nothing_matches_language_or_condition(
+def test_no_price_when_nothing_within_the_condition_cap(
     temp_db: Database, collection_id: int
 ) -> None:
+    """Deliberately NO_PRICE, not the old "average over everything, ignore
+
+    condition/language entirely" fallback: the only offer found is too far
+    (more than +-1 step) from the card's own condition to count as a
+    reasonable estimate (user-specified: a wild guess is worse than none).
+    """
     card = _card(temp_db, collection_id, language=Language.GERMAN, condition=Condition.GOOD)
-    # Tier 1 (language=German + minCondition=Good): nothing. Tier 2
-    # (language=German, any condition): still nothing. Tier 3
-    # (minCondition=Good, any language): nothing exactly GOOD either.
-    # Tier 4 (fully unfiltered): everything found so far, averaged.
-    unfiltered_offers = [
+    # NEAR_MINT is 2 steps from GOOD -- past the +-1 cap.
+    too_far_offers = [
         CardmarketOffer(
             seller="a", condition=Condition.NEAR_MINT, language=Language.ENGLISH, price=10.0
         ),
-        CardmarketOffer(seller="b", condition=Condition.POOR, language=Language.FRENCH, price=20.0),
     ]
-    reader = FakeOfferReader([], [], [], unfiltered_offers)
+    reader = FakeOfferReader([], [], [], too_far_offers)
     service = _service(temp_db, reader)
 
     updated = service.update_price_for_card(card.id)
 
-    assert updated.current_price == 15.0
-    assert updated.price_quality is PriceQuality.AVERAGE
+    assert updated.current_price is None
+    assert updated.price_quality is PriceQuality.NO_PRICE
     assert len(reader.calls) == 4
-    assert reader.calls[3][0] == build_filtered_url(_CARDMARKET_URL, **_NO_EXTRAS)
+    assert reader.calls[3][0] == build_filtered_url(
+        _CARDMARKET_URL, language=Language.ENGLISH, **_NO_EXTRAS
+    )
 
 
-def test_unmapped_language_without_manual_url_bails_with_clear_message(
+def test_market_divergent_language_does_not_estimate_from_a_different_language(
     temp_db: Database, collection_id: int
 ) -> None:
-    """Japanese/Korean/Chinese prints are entirely separate Cardmarket
+    """Japanese/Korean/Chinese prints can have wildly different market
 
-    products (e.g. Neo Revelation's Ho-Oh is listed under "Awakening
-    Legends"), not a language filter on the Western product's page.
-    pokemontcg.io's own cardmarket_url always points at that Western
-    product, so falling through the ladder against it would misprice the
-    card from unrelated offers -- this must bail out instead of guessing,
-    and never even touch the reader.
+    prices from Western-language copies -- unlike German vs. English (the
+    same product, plausibly similar value). Live-reported: Cardmarket's own
+    ``?language=`` filter *does* work correctly for these three on an
+    ordinary single card's page (previously assumed it didn't), so the
+    ladder now runs normally against it -- but if the card's own language
+    still turns up nothing at all, this must never silently fall back to an
+    English estimate.
     """
     card = _card(temp_db, collection_id, language=Language.JAPANESE, condition=Condition.GOOD)
     reader = FakeOfferReader()
@@ -441,11 +465,20 @@ def test_unmapped_language_without_manual_url_bails_with_clear_message(
     assert updated.current_price is None
     assert updated.price_quality is PriceQuality.NO_PRICE
     assert "Japanese" in updated.price_rationale
-    assert "Cardmarket link" in updated.price_rationale
-    assert reader.calls == []
+    assert "differ wildly" in updated.price_rationale
+    # Tier 1 (at-or-better) + tier 2 (any condition), both correctly
+    # language-filtered -- no alternate-version retry (no "-V<n>" suffix on
+    # this URL), and no English tier at all for a market-divergent language.
+    assert len(reader.calls) == 2
+    assert reader.calls[0][0] == build_filtered_url(
+        _CARDMARKET_URL, language=Language.JAPANESE, min_condition=Condition.GOOD, **_NO_EXTRAS
+    )
+    assert reader.calls[1][0] == build_filtered_url(
+        _CARDMARKET_URL, language=Language.JAPANESE, **_NO_EXTRAS
+    )
 
 
-def test_unmapped_language_bail_out_includes_a_designation_hint_when_found(
+def test_market_divergent_no_price_includes_a_designation_hint_when_found(
     temp_db: Database, collection_id: int
 ) -> None:
     """Names/labels only, never a price -- see tcgdex_designation_lookup's
@@ -481,7 +514,7 @@ def test_unmapped_language_bail_out_includes_a_designation_hint_when_found(
     assert updated.price_quality is PriceQuality.NO_PRICE
 
 
-def test_unmapped_language_bail_out_survives_a_designation_lookup_failure(
+def test_market_divergent_no_price_survives_a_designation_lookup_failure(
     temp_db: Database, collection_id: int
 ) -> None:
     from app.catalog.tcgdex_designation_lookup import TcgdexDesignationLookupError
@@ -498,13 +531,15 @@ def test_unmapped_language_bail_out_survives_a_designation_lookup_failure(
     assert "Japanese" in updated.price_rationale
 
 
-def test_manual_cardmarket_url_override_is_used_for_unmapped_language(
+def test_manual_cardmarket_url_override_is_used_and_still_language_filtered(
     temp_db: Database, collection_id: int
 ) -> None:
-    """Once the user supplies the correct (Japanese-product) Cardmarket URL
+    """A manual override is typically supplied for a card whose
 
-    themselves, the ladder runs against *that* instead, with the same
-    client-side language filtering as any other unmapped-language lookup.
+    pokemontcg.io-sourced link points at the wrong product entirely (e.g. a
+    vintage/reprint set's own separate product) -- the ladder runs against
+    *that* URL instead, now with the same language filter as any other
+    lookup (Japanese/Korean/Chinese included, see the correction above).
     """
     manual_url = "https://www.cardmarket.com/en/Pokemon/Products/Singles/Awakening-Legends/Ho-Oh-AL"
     card = _card(
@@ -525,8 +560,9 @@ def test_manual_cardmarket_url_override_is_used_for_unmapped_language(
 
     assert updated.current_price == 9.0  # the cheap English one must be ignored
     assert updated.price_quality is PriceQuality.EXACT
-    # No language id to filter by, but the condition filter still applies.
-    expected_url = build_filtered_url(manual_url, min_condition=Condition.GOOD, **_NO_EXTRAS)
+    expected_url = build_filtered_url(
+        manual_url, language=Language.JAPANESE, min_condition=Condition.GOOD, **_NO_EXTRAS
+    )
     assert reader.calls == [(expected_url, "Xatu")]
 
 

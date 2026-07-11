@@ -44,3 +44,29 @@ def translate_to_english(term: str) -> str | None:
     translation available", not an error.
     """
     return _translations().get(normalize_for_search(term))
+
+
+def translate_name_with_suffix(name: str) -> str | None:
+    """Translate a foreign species name even when followed by a card-type
+
+    suffix pokemontcg.io never translates (e.g. "Blitza VMAX" -> "Jolteon
+    VMAX", not just "Blitza" alone). ``translate_to_english`` only ever
+    matches a *whole* query against a single foreign species name -- a live
+    bug report found "Blitza VMAX" returning nothing at all, even though
+    "Blitza" alone translates fine, because normalising the combined query
+    collapses it to "blitzavmax", which isn't a key in the translation
+    table at all (only the bare species name is). Tried longest-to-shortest
+    so a genuinely multi-word foreign name (were one ever added) still gets
+    first refusal over assuming the last word is an untranslatable suffix.
+
+    ``None`` if no prefix of ``name`` translates -- callers should treat
+    that the same as "no translation available" from ``translate_to_english``.
+    """
+    tokens = name.split()
+    for split_point in range(len(tokens), 0, -1):
+        candidate = " ".join(tokens[:split_point])
+        translated = translate_to_english(candidate)
+        if translated and translated.casefold() != candidate.casefold():
+            suffix = " ".join(tokens[split_point:])
+            return f"{translated} {suffix}".strip()
+    return None

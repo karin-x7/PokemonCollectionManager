@@ -51,10 +51,13 @@ class Card:
     external_card_id: str | None = None
     cardmarket_url: str | None = None
     #: User-supplied override, used instead of ``cardmarket_url`` for price
-    #: lookups when set. Needed for Japanese/Korean/Chinese prints:
-    #: pokemontcg.io's own ``cardmarket_url`` always points at the *Western*
-    #: product, a separate, wrong Cardmarket listing for those languages
-    #: (see ``app.pricing.browser_price_reader.supports_language_filter``).
+    #: lookups when set. Needed when pokemontcg.io's own ``cardmarket_url``
+    #: points at the wrong product entirely -- most commonly some older/
+    #: reprint sets' Japanese/Korean/Chinese prints, which Cardmarket lists
+    #: as a separate product under an unrelated name (see
+    #: ``app.pricing.cardmarket_parsing.is_market_divergent_language``);
+    #: automatic language filtering (``supports_language_filter``) already
+    #: handles the ordinary case where it's just a filter on the same page.
     manual_cardmarket_url: str | None = None
 
     # Latest price snapshot (full history lives in ``price_history``).

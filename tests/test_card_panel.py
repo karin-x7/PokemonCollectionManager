@@ -25,6 +25,7 @@ from PySide6.QtGui import QColor
 from app.catalog.models import CatalogCard
 from app.models.card import Card, CardDetailsValues
 from app.models.enums import Condition, Language
+from app.pricing.models import ProductInfo
 from app.ui.app import build_application
 from app.ui.theme import PALETTE
 from app.ui.widgets.card_list_panel import CardListPanel
@@ -278,6 +279,32 @@ def test_edit_confirmed_emits_id_and_prefilled_values(monkeypatch, panel: CardLi
     assert captured_kwargs["initial"].language is Language.ENGLISH  # prefilled from the card
 
 
+def test_edit_prefills_the_manual_cardmarket_url(monkeypatch, panel: CardListPanel) -> None:
+    # Live-reported bug: this field was missing from the dialog's "initial"
+    # values entirely, so it always started empty in the edit dialog --
+    # saving then wrote that empty value back, silently wiping the card's
+    # own Cardmarket-link override and breaking its next price lookup.
+    panel.set_cards(
+        [
+            _card(id=1, name="Xatu", manual_cardmarket_url="https://www.cardmarket.com/x"),
+            _card(id=2, name="Charizard"),
+        ]
+    )
+    dialog = MagicMock()
+    dialog.exec.return_value = QDialog.DialogCode.Rejected
+    captured_kwargs = {}
+
+    def fake_dialog(**kwargs):
+        captured_kwargs.update(kwargs)
+        return dialog
+
+    monkeypatch.setattr("app.ui.widgets.card_list_panel.CardDetailsDialog", fake_dialog)
+
+    panel._prompt_edit(0)  # Xatu, id=1
+
+    assert captured_kwargs["initial"].manual_cardmarket_url == "https://www.cardmarket.com/x"
+
+
 def test_edit_cancelled_emits_nothing(monkeypatch, panel: CardListPanel) -> None:
     dialog = MagicMock()
     dialog.exec.return_value = QDialog.DialogCode.Rejected
@@ -367,3 +394,49 @@ def test_prompt_add_from_catalog_cancelled_emits_nothing(
     panel.prompt_add_from_catalog(_CATALOG_CARD)
 
     assert received == []
+
+
+def test_prompt_add_manual_prefills_the_detected_language(
+    monkeypatch, panel: CardListPanel
+) -> None:
+    # Real, live-reported bug: this always defaulted to English regardless
+    # of what was actually pasted -- this flow's whole purpose is JP/KO/ZH/
+    # vintage prints (see CardListPanel.prompt_add_manual's own docs).
+    dialog = MagicMock()
+    dialog.exec.return_value = QDialog.DialogCode.Rejected
+    captured_kwargs = {}
+
+    def fake_dialog(**kwargs):
+        captured_kwargs.update(kwargs)
+        return dialog
+
+    monkeypatch.setattr("app.ui.widgets.card_list_panel.CardDetailsDialog", fake_dialog)
+    info = ProductInfo(
+        name="Nachtara-GX",
+        set_name="SM Schwarzstern Promos",
+        card_number="36",
+        detected_language=Language.GERMAN,
+    )
+
+    panel.prompt_add_manual(info, "https://www.cardmarket.com/en/Pokemon/Products/x")
+
+    assert captured_kwargs["initial"].language is Language.GERMAN
+
+
+def test_prompt_add_manual_falls_back_to_english_without_a_detected_language(
+    monkeypatch, panel: CardListPanel
+) -> None:
+    dialog = MagicMock()
+    dialog.exec.return_value = QDialog.DialogCode.Rejected
+    captured_kwargs = {}
+
+    def fake_dialog(**kwargs):
+        captured_kwargs.update(kwargs)
+        return dialog
+
+    monkeypatch.setattr("app.ui.widgets.card_list_panel.CardDetailsDialog", fake_dialog)
+    info = ProductInfo(name="Venusaur", set_name="Legendary Collection", card_number="18")
+
+    panel.prompt_add_manual(info, "https://www.cardmarket.com/en/Pokemon/Products/x")
+
+    assert captured_kwargs["initial"].language is Language.ENGLISH

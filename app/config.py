@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 APP_NAME: str = "Pokémon Collection Manager"
-APP_VERSION: str = "0.10.0-alpha.2"
+APP_VERSION: str = "1.0.0-beta.1"
 
 if getattr(sys, "frozen", False):
     # Running as a PyInstaller-built .exe: __file__ would resolve inside the
@@ -55,6 +55,11 @@ SET_ICONS_DIR: Path = DATA_DIR / "set_icons"
 #: other subfolders so a backup restore is a plain "copy this one file back",
 #: not tangled up with photos/icons.
 BACKUPS_DIR: Path = DATA_DIR / "backups"
+
+#: Marker file whose mere existence means the user checked "Don't show this
+#: again" on the welcome dialog -- absence is the only signal needed, so
+#: there's no reason to store real content in it, just touch/delete.
+WELCOME_DISMISSED_FLAG: Path = DATA_DIR / "welcome_dismissed"
 
 DB_PATH: Path = _path_from_env("PCM_DB_PATH", DATA_DIR / "collection.db")
 LOG_FILE: Path = LOGS_DIR / "application.log"

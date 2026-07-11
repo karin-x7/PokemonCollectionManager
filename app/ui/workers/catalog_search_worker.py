@@ -33,15 +33,29 @@ class CatalogSearchWorker(QThread):
 
     def run(self) -> None:  # noqa: D102 — QThread override
         try:
-            matches = self._service.search(self._query)
+            matches = self._service.search(
+                self._query, is_cancelled=self.isInterruptionRequested
+            )
         except CatalogSearchError as exc:
+            if self.isInterruptionRequested():
+                return
             logger.error("Catalogue search failed for %r: %s", self._query, exc)
             self.failed.emit(str(exc))
             return
         except Exception as exc:  # noqa: BLE001 — this runs in pythonw with no
             # console, so an uncaught exception here would otherwise vanish
             # silently instead of ever reaching the log file.
+            if self.isInterruptionRequested():
+                return
             logger.exception("Unexpected error during catalogue search for %r", self._query)
             self.failed.emit(f"Unerwarteter Fehler: {exc}")
+            return
+        # A cancelled search (see CatalogSearchController._on_dialog_finished)
+        # has no dialog left listening for its result -- and CatalogSearchService
+        # itself already stops firing further requests once cancelled (see
+        # CatalogSearchService._safe_search), so `matches` here is just
+        # whatever partial/empty result it had already collected, not a real
+        # answer worth emitting.
+        if self.isInterruptionRequested():
             return
         self.succeeded.emit(matches)

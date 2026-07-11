@@ -139,7 +139,7 @@ def test_japanese_product_never_falls_back_to_a_different_language(
 
     assert updated.current_price is None
     assert updated.price_quality is PriceQuality.NO_PRICE
-    assert "Japanisch" in updated.price_rationale
+    assert "Japanese" in updated.price_rationale
 
 
 def test_korean_product_with_an_exact_match_still_works(temp_db: Database) -> None:

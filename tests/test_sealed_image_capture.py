@@ -11,18 +11,40 @@ UI-Automation-shaped objects, with ``_capture_and_crop`` monkeypatched.
 from __future__ import annotations
 
 import pytest
+from PySide6.QtGui import QColor, QImage
 
 from app.pricing import sealed_image_capture
 from app.pricing.sealed_image_capture import (
     _find_product_image_control,
+    _is_suspiciously_blank,
     capture_sealed_product_image,
 )
+
+
+def _solid_image(color: str = "black", size: int = 10) -> QImage:
+    image = QImage(size, size, QImage.Format.Format_RGB32)
+    image.fill(QColor(color))
+    return image
+
+
+def _varied_image(size: int = 10) -> QImage:
+    """A non-blank stand-in for a real photo -- a distinct colour at every
+    pixel (a simple gradient), so every one of ``_is_suspiciously_blank``'s
+    sample points lands on a different colour, same as a genuine photo's
+    rich colour variety."""
+    image = QImage(size, size, QImage.Format.Format_RGB32)
+    for y in range(size):
+        for x in range(size):
+            image.setPixelColor(x, y, QColor(x * 20 % 256, y * 20 % 256, (x + y) * 10 % 256))
+    return image
 
 
 class _FakeRect:
     def __init__(self, left: int, top: int, width: int, height: int) -> None:
         self.left = left
         self.top = top
+        self.right = left + width
+        self.bottom = top + height
         self._width = width
         self._height = height
 
@@ -89,6 +111,32 @@ def test_find_product_image_control_falls_back_to_largest_when_no_name_matches()
     assert found is large
 
 
+def test_find_product_image_control_skips_offscreen_carousel_sibling() -> None:
+    # Live-reported bug: Cardmarket's photo carousel has several <img>
+    # elements sharing the exact same accessible name -- an adjacent slide
+    # sitting off to the side (negative on-screen x, for the slide
+    # transition) is full-sized and would previously have been returned
+    # just because it was encountered first, deterministically capturing a
+    # blank/wrong crop every single time for that product.
+    offscreen_sibling = _FakeControl("Blitza", _FakeRect(-171, 472, 242, 343))
+    visible_photo = _FakeControl("Blitza", _FakeRect(92, 472, 242, 343))
+    window = _FakeWindow([offscreen_sibling, visible_photo])
+
+    found = _find_product_image_control(window, "Blitza")
+
+    assert found is visible_photo
+
+
+def test_find_product_image_control_skips_zero_sized_duplicate() -> None:
+    zero_sized = _FakeControl("Blitza", _FakeRect(0, 0, 0, 0))
+    visible_photo = _FakeControl("Blitza", _FakeRect(92, 472, 242, 343))
+    window = _FakeWindow([zero_sized, visible_photo])
+
+    found = _find_product_image_control(window, "Blitza")
+
+    assert found is visible_photo
+
+
 def test_find_product_image_control_falls_back_to_largest_with_blank_name() -> None:
     small = _FakeControl("a", _FakeRect(0, 0, 20, 20))
     large = _FakeControl("b", _FakeRect(0, 0, 400, 400))
@@ -110,13 +158,76 @@ def test_capture_returns_none_when_no_image_control_found() -> None:
 def test_capture_returns_saved_path_on_success(monkeypatch, tmp_path) -> None:
     photo = _FakeControl("Base Set Booster Box", _FakeRect(0, 0, 400, 400))
     window = _FakeWindow([photo])
-    monkeypatch.setattr(sealed_image_capture, "_capture_and_crop", lambda *a, **k: None)
+    monkeypatch.setattr(
+        sealed_image_capture, "_capture_and_crop", lambda *a, **k: _varied_image()
+    )
 
     result = capture_sealed_product_image(window, "Base Set Booster Box", dest_dir=tmp_path)
 
     assert result is not None
     assert result.startswith(str(tmp_path))
     assert result.endswith(".png")
+
+
+def test_is_suspiciously_blank_detects_a_solid_colour_image() -> None:
+    assert _is_suspiciously_blank(_solid_image("black")) is True
+    assert _is_suspiciously_blank(_solid_image("white")) is True
+
+
+def test_is_suspiciously_blank_false_for_a_varied_image() -> None:
+    assert _is_suspiciously_blank(_varied_image()) is False
+
+
+def test_is_suspiciously_blank_true_for_a_null_image() -> None:
+    assert _is_suspiciously_blank(QImage()) is True
+
+
+def test_is_suspiciously_blank_detects_a_two_tone_split_image() -> None:
+    # Live-reported (with screenshots): a captured "photo" was actually a
+    # clean vertical two-tone split -- solid black on one side, a slightly
+    # lighter near-black on the other -- with no real image content. The
+    # original 3x3 sample grid missed this: two of its three x-positions
+    # happened to fall on the same side of the split, so the 9 samples
+    # weren't literally *all* identical even though the image was still
+    # just two flat rectangles, not a photo.
+    size = 20
+    image = QImage(size, size, QImage.Format.Format_RGB32)
+    for y in range(size):
+        for x in range(size):
+            image.setPixelColor(x, y, QColor("black") if x < size * 0.55 else QColor(20, 22, 27))
+
+    assert _is_suspiciously_blank(image) is True
+
+
+def test_capture_retries_once_after_a_blank_first_attempt(monkeypatch, tmp_path) -> None:
+    # Real, live-screenshotted bug: the first capture came back solid black
+    # (the image hadn't painted yet) -- a retry should give it another
+    # chance rather than saving the useless black file.
+    photo = _FakeControl("Base Set Booster Box", _FakeRect(0, 0, 400, 400))
+    window = _FakeWindow([photo])
+    attempts = [_solid_image("black"), _varied_image()]
+    monkeypatch.setattr(
+        sealed_image_capture, "_capture_and_crop", lambda *a, **k: attempts.pop(0)
+    )
+    monkeypatch.setattr(sealed_image_capture.time, "sleep", lambda seconds: None)
+
+    result = capture_sealed_product_image(window, "Base Set Booster Box", dest_dir=tmp_path)
+
+    assert result is not None
+    assert attempts == []  # both queued attempts were consumed
+
+
+def test_capture_returns_none_when_still_blank_after_retry(monkeypatch, tmp_path) -> None:
+    photo = _FakeControl("Base Set Booster Box", _FakeRect(0, 0, 400, 400))
+    window = _FakeWindow([photo])
+    monkeypatch.setattr(
+        sealed_image_capture, "_capture_and_crop", lambda *a, **k: _solid_image("black")
+    )
+    monkeypatch.setattr(sealed_image_capture.time, "sleep", lambda seconds: None)
+
+    result = capture_sealed_product_image(window, "Base Set Booster Box", dest_dir=tmp_path)
+
+    assert result is None
 
 
 def test_capture_returns_none_when_crop_raises(monkeypatch, tmp_path) -> None:

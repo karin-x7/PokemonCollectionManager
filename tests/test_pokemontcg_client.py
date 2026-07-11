@@ -28,10 +28,14 @@ def test_build_query_all_fields() -> None:
     )
 
 
-def test_build_query_multi_word_name_becomes_exact_phrase_without_wildcard() -> None:
-    # A quoted phrase combined with a trailing wildcard is rejected by the
-    # API with a 400 (measured live), so multi-word terms drop the wildcard.
-    assert build_query(name="team rocket") == 'name:"team rocket"'
+def test_build_query_multi_word_name_becomes_and_combined_prefix_clauses() -> None:
+    # Live-confirmed: pokemontcg.io's own stored `name` field literally uses
+    # a hyphen for GX/EX-type suffixes ("Umbreon-GX"), not a space -- one
+    # quoted exact phrase with a space unreliably matches that hyphenated
+    # token. Independent per-word prefix wildcards, AND-combined, sidestep
+    # this (and as a bonus also find combo-name cards a single phrase never
+    # would, e.g. "Umbreon & Darkrai-GX").
+    assert build_query(name="team rocket") == "name:team* name:rocket*"
 
 
 def test_build_query_escapes_inner_quotes() -> None:

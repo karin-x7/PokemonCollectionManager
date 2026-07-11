@@ -6,6 +6,274 @@ Versionierung nach [SemVer](https://semver.org).
 
 ## [Unreleased]
 
+## [1.0.0-beta.1] — 2026-07-11
+
+Erste Beta: die App ist feature-komplett für ihr Kernversprechen (Karten,
+Sealed-Produkte, Wantlist, Statistik, Export/Import, Backups) und lief durch
+etliche Runden echten Testens mit einer umfangreichen automatisierten
+Test-Suite im Rücken. Zwei bekannte Rückstands-Punkte sind bewusst nicht
+Teil dieses Standes: ein Grading-Lohnt-sich-Rechner und ein automatisches
+Backup an einen zweiten Ort -- beides spätere Erweiterungen, keine
+Blocker für diese Beta.
+
+### Behoben — Kartenbild wechselte sichtbar die Größe je nach Karte
+- Live-reported (Beta-Test): dasselbe Artwork-Feld zeigte je nach Karte
+  unterschiedlich große Bilder, obwohl das Panel selbst nicht in der Größe
+  verändert wurde. Ursache: `CardArtworkView`/`SealedArtworkView` hatten nur
+  eine Min/Max-Höhen-Spanne (260-420px) und waren zugleich das einzige
+  Element mit `stretch=1` im Detail-Panel-Layout -- ein längeres
+  "Price quality"-Feld (zweizeilige Schätz-Begründung statt einer kurzen
+  "Exact match"-Zeile) stahl dadurch sichtbar Platz vom Artwork. Fix: feste
+  statt variable Höhe für beide Artwork-Widgets, unabhängig vom Inhalt der
+  übrigen Felder. Ein erster Versuch (360px) war selbst wieder zu groß und
+  überlappte die Formularfelder darunter -- auf 260px korrigiert (derselbe
+  Wert, den die alte Min-Höhe schon sicher nutzte).
+
+### Hinzugefügt — Manuell per Link eingetragene Karten bekommen den englischen Namen
+- Der Name einer manuell per Cardmarket-Link hinzugefügten Karte kam bisher
+  1:1 vom Seitentitel -- auf einer nicht-englischen Cardmarket-Domain (z. B.
+  cardmarket.com/de/...) also in der jeweiligen Sprache ("Despotar V" statt
+  "Tyranitar V"), obwohl jede andere Karte in der Sammlung unter ihrem
+  englischen Namen geführt wird. Nutzt jetzt dieselbe Übersetzungstabelle,
+  die schon die Katalogsuche für fremdsprachige Namen verwendet (inkl.
+  Karten mit Endungen wie "V"/"GX"/"VMAX") -- ein unbekannter oder bereits
+  englischer Name bleibt unverändert.
+
+### Behoben — Kartenfoto blieb leer, obwohl der Preis korrekt gefunden wurde
+- Live-reported: "Blitza" (Split Earth) zeigte konsequent kein Bild, auch
+  nach mehrfachem erneutem Hinzufügen -- obwohl die Preissuche auf derselben
+  Cardmarket-Seite einwandfrei funktionierte. Live an der echten Cardmarket-
+  Seite nachvollzogen: das Produktfoto liegt dort in einem Bilder-Karussell
+  mit mehreren `<img>`-Elementen, die exakt denselben zugänglichen Namen
+  tragen -- z. B. eine benachbarte Karussell-Folie, die für die
+  Slide-Animation an einer negativen Bildschirmposition (aber in voller
+  Originalgröße!) sitzt, daneben eine unsichtbare 0×0-Pixel-Dublette für
+  die mobile Ansicht. Die Bild-Erkennung nahm bisher einfach den *ersten*
+  Namenstreffer -- traf sie zuerst auf einen dieser Duplikate statt auf das
+  tatsächlich sichtbare Foto, war das Ergebnis bei jedem einzelnen Versuch
+  identisch falsch (kein Zufallstreffer, sondern ein deterministischer
+  Fehlgriff). Jetzt werden Namenstreffer zuerst auf tatsächlich im Fenster
+  sichtbare Kandidaten eingegrenzt, und unter denen der größte gewählt --
+  wie es bei fehlendem Namenstreffer schon immer der Fall war.
+
+### Behoben — Bearbeiten einer Karte löschte ihren eigenen Cardmarket-Link
+- Live-reported (Beta-Test): nach dem Bearbeiten einer manuell per Link
+  hinzugefügten Karte fand die Preissuche plötzlich gar nichts mehr, obwohl
+  sie direkt nach dem Hinzufügen noch einen exakten Preis gefunden hatte.
+  Ursache: der "Karte bearbeiten"-Dialog übernahm den eigenen Cardmarket-
+  Link der Karte (`manual_cardmarket_url`) beim Öffnen nicht -- das Feld
+  erschien leer, und beim Speichern wurde dieser leere Wert zurück in die
+  Karte geschrieben, wodurch der zuvor gesetzte Link verschwand. Jetzt wird
+  er beim Öffnen des Dialogs korrekt vorausgefüllt und bleibt bei jeder
+  Bearbeitung erhalten, die ihn nicht bewusst ändert.
+
+### Behoben — Kartenbild "sprang" in der Position, nicht der Größe
+- Live-reported (Beta-Test, nach dem Größen-Fix oben): auf einem Fenster,
+  das größer war als der eigentliche Panel-Inhalt brauchte, verschob sich
+  die vertikale Position des Artworks zwischen Karten -- z. B. saß es bei
+  einer Karte mit zweizeiliger Preis-Begründung höher als bei einer mit
+  einzeiliger, obwohl das Artwork selbst (dank des Fixes oben) längst eine
+  feste Größe hatte. Ursache: ohne einen expliziten Stretch-Faktor am Ende
+  des Layouts verteilt Qt übrig gebliebenen vertikalen Platz auf alle
+  nicht-fixierten Elemente -- hier die Überschrift oberhalb des Artworks --
+  und wie viel Platz überblieb, hing genau davon ab, wie viele Zeilen die
+  variable Preisqualitäts-Begründung darunter brauchte. Fix: ein
+  abschließender Stretch am Ende des Panels beansprucht jetzt den gesamten
+  übrigen Platz selbst, sodass alle Elemente darüber ihre natürliche
+  Position behalten -- unabhängig von der Fensterhöhe oder der Textlänge
+  darunter.
+
+### Behoben — "Preisqualität"-Text zu lang, überlappte das Panel
+- Die Begründungstexte für geschätzte Preise wiederholten unnötig
+  "Geschätzt aus"/"Estimated from" -- das steht bereits in der
+  Qualitäts-Bezeichnung direkt davor ("Estimated from a different
+  condition — Estimated from Japanese, condition..."). Gekürzt auf die
+  reinen Details (Sprache/Zustand), ohne die eigentliche Information zu
+  verlieren.
+
+### Behoben — Manuell erfasstes Kartenfoto war ein reiner Zweifarben-Split
+- Live-reported (mit Screenshot): das automatisch erfasste Foto einer
+  manuell per Cardmarket-Link hinzugefügten Karte zeigte gar kein echtes
+  Bild, nur eine saubere vertikale Zweifarben-Fläche (schwarz/dunkelgrau).
+  Die "sieht das leer aus?"-Prüfung vor dem Speichern hat das nicht
+  erkannt: sie verglich nur 9 feste Stichprobenpunkte auf exakte
+  Übereinstimmung, und bei einem Zweifarben-Split fielen manche Punkte auf
+  die eine, manche auf die andere Seite -- "nicht alle neun identisch"
+  wurde fälschlich als "kein Problem" gewertet. Jetzt: mehr Stichproben
+  plus eine Mindestanzahl unterschiedlicher Farben statt nur "mehr als
+  eine" -- ein echtes Kartenfoto hat immer deutlich mehr Farbvielfalt als
+  eine handvoll flacher Blöcke.
+
+### Behoben — Cardmarket-Sprachfilter für Japanisch/Koreanisch/Chinesisch bei Einzelkarten
+- Live-reported (mit Screenshot): eine besessene japanische EX-Karte in
+  Zustand Excellent hatte auf Cardmarket ein exaktes Angebot (149,99 €) --
+  die App zeigte stattdessen einen geschätzten Near-Mint-Preis (230,00 €)
+  an. Ursache: eine falsche Annahme im Code, dass Cardmarket für
+  Einzelkarten (anders als Sealed-Produkte) generell keinen `?language=`-
+  Filter für Japanisch/Koreanisch/Chinesisch anbietet -- der Nutzer bewies
+  live per Screenshot, dass `?language=7&minCondition=3` auf einer normalen
+  Kartenseite korrekt filtert. Die echte, engere Ausnahme (manche
+  ältere Sets/Nachdrucke führen die Sprache als eigenständiges Produkt,
+  z. B. Neo Revelations Ho-Oh als "Awakening Legends") bleibt über den
+  bestehenden Alternate-Version-Versuch und "Eigener Cardmarket-Link"
+  abgedeckt. Automatische Preisermittlung funktioniert jetzt für diese drei
+  Sprachen genau wie für jede andere -- die bisher nötige Umgehung über
+  einen manuell eingetragenen Cardmarket-Link entfällt im Regelfall.
+  Weiterhin unverändert: ein Preis wird nie über Sprachgrenzen hinweg für
+  Japanisch/Koreanisch/Chinesisch geschätzt (deren Marktpreise können stark
+  abweichen) -- das gilt jetzt als eigener, klar benannter Grundsatz statt
+  zufällig an derselben Prüfung wie der (jetzt korrigierte) Filter-Bug zu
+  hängen.
+
+### Neu — Welcome-Fenster + FAQ-Reiter, Help-Text stark erweitert
+- Neues Welcome-Fenster beim Programmstart (Text vom Nutzer vorab
+  abgesegnet): kurzer Überblick über die App + Hinweis auf "Help". Erscheint
+  standardmäßig bei jedem Start; "Don't show this again" merkt sich die
+  Entscheidung dauerhaft (einfache Marker-Datei in `data/`, kein
+  Windows-Registry-Zugriff, passend zum bestehenden "alles liegt in
+  Klartext-Dateien"-Prinzip der App).
+- Neuer dritter Reiter **FAQ** im Info-Dialog (zwischen Help und Info):
+  beantwortet konkrete Nutzerfragen wie "Warum funktioniert das nicht alles
+  automatisch?", "Wie trage ich japanische/koreanische/chinesische Karten
+  ein?" oder "Was passiert, wenn etwas kaputtgeht?".
+- Help-Tab nach vollständigem Audit aller UI-Funktionen deutlich erweitert:
+  neuer Abschnitt "Collections" (bisher komplett unerwähnt), plus bisher
+  fehlende Punkte bei Cards (Verschieben zwischen Sammlungen, Duplikat-
+  Warnung, Mehrfachauswahl, Sortierung, Filterleiste, Cardmarket-Link-Fix-
+  Flow), Sealed products (Bearbeiten/Löschen/Sortierung/Gesamtpreis),
+  Wantlist ("Add to collection"-Konvertierung, Status-Anzeige), Statistics
+  (Übersichts-Kacheln, Aufschlüsselungen, "Most expensive", "Biggest price
+  increase") und General (Export-Bereichsauswahl, Backup-Wiederherstellungs-
+  Mechanik im Detail).
+
+### Nachbesserung: Reihenfolge, Größe, Navigation, Textkorrektur
+- Reiter-Reihenfolge getauscht: FAQ jetzt vor Help.
+- Info-Dialog deutlich größer (820×700) und Schrift in Help/FAQ spürbar
+  größer (15pt) -- mehrfach nachgebessert, nachdem ein `setFont()` allein
+  von der App-weiten QSS-Regel (`font-size: 10pt` auf jedem `QWidget`)
+  überschrieben wurde; Fix ist ein widget-eigenes Stylesheet, das gegen
+  jede Vorfahren-Regel gewinnt. Gleicher Fix + gleiche Schriftgröße auch
+  im Welcome-Fenster, das dafür ebenfalls vergrößert wurde (zuletzt
+  640×520, in zwei Nachbesserungsrunden).
+- Neuer "Contents"-Index oben im Help-Tab: pro Kategorie eine klickbare
+  Liste aller Funktionen, springt direkt zur passenden Stelle. FAQ-Fragen
+  verlinken jetzt ebenfalls auf die passende Help-Stelle ("See also"), inkl.
+  automatischem Tab-Wechsel beim Klick.
+- Verlinkungen erscheinen jetzt im App-eigenen Orange-Akzent statt in
+  Windows' Standard-Linkfarbe (grün) -- selbes Problem wie beim Font-Fix:
+  Farbe muss über das `QTextDocument`-eigene `setDefaultStyleSheet` gesetzt
+  werden, ein reines Widget-Stylesheet erreicht die Links innerhalb des
+  gerenderten HTML nicht.
+- Mehr Abstand zwischen den einzelnen FAQ-Fragen.
+- Textkorrektur: Help/FAQ nannten den Cardmarket-Such-Button fälschlich
+  "Cardmarket link suchen" (der interne deutsche `tr()`-Quelltext) statt
+  seiner tatsächlichen englischen Beschriftung "Search Cardmarket link".
+
+### Neu — Cardmarket-Link-Button: 3 UX-Verbesserungen
+- Inline-Fallback "Open Cardmarket search in browser" im Ergebnis-Dialog,
+  wenn die automatische Suche selbst nichts findet -- öffnet Cardmarkts
+  eigene Suche in einem normalen, offen bleibenden Browserfenster.
+- Neue Kontextmenü-Aktion "Fix Cardmarket link" in der Kartenliste (vorher
+  nur über den Button im Detailpanel erreichbar, jetzt auch direkt aus der
+  Liste heraus, ohne die Karte erst öffnen zu müssen).
+- Zusätzliche Bestätigung mit dem konkret aufgelösten Link, bevor er
+  tatsächlich gespeichert wird -- vorher wurde nach Auswahl eines
+  Suchtreffers automatisch und ohne weitere Rückfrage gespeichert.
+
+### Geändert — Help/Info-Dialog
+- Help-Tab kommt jetzt vor Info.
+- Credits im Info-Tab: "Created by Karin" statt "Created by Codeon" mit
+  GitHub-Link.
+- Neuer Hinweis im Help-Text: die mehrsprachige Suche ist best-effort,
+  nicht garantiert -- ungewöhnliche Namen ggf. auf Englisch suchen oder
+  per Cardmarket-Link manuell eintragen.
+
+### Behoben — Restliches Deutsch in der Massenpreisabfrage + weiteren Stellen
+- Die Statusmeldungen der Massenpreisabfrage ("Preis X/Y wird von
+  Cardmarket abgerufen…", "Alle veralteten Preise wurden aktualisiert.")
+  waren für Karten und Sealed-Produkte noch auf Deutsch. Nebenbei per
+  Audit gefunden und ebenfalls behoben: mehrere weitere untranslatierte
+  Einzelstellen (Sealed-Produktdetails, Sealed-Tabellenspalten, JP/KO/ZH-
+  Schätzpreis-Hinweis, Preisverlauf-Löschbestätigung, Cardmarket-
+  Sucheautomatisierung).
+
+### Behoben — Set-Icon im Card-Details-Panel noch mit dunklem Kasten
+- Der erste Skalierungs-Fix reichte nicht: die eigentliche Ursache war eine
+  globale Stylesheet-Regel, die jedem `QWidget` (auch einem `QLabel`) einen
+  opaken Hintergrund gibt, sofern nicht explizit `background: transparent`
+  gesetzt ist — derselbe Bug, der früher schon die "Alle Sammlungen"-
+  Checkbox betraf. Neue allgemeine Regel behebt es für jedes Label.
+
+### Behoben — "Sprache"-Feldlabel fälschlich noch Deutsch
+- Das "Sprache:"-Feld im Card-Details-Panel (und, derselbe Bug, im Sealed-
+  Detailpanel, der Sealed-Liste und der Statistik-Tabelle) zeigte noch den
+  deutschen Text statt "Language" — fehlender Übersetzungseintrag.
+
+### Behoben — UI-Politur (Suchfeld, Spinner-Pfeile, Sortierung, Set-Icons)
+- Suchfeld in der Toolbar verbreitert, Platzhaltertext-Beispiel aktualisiert.
+- Quantity-Spinner-Pfeile sind jetzt sichtbar (vorher kaum erkennbar gegen
+  das dunkle Theme).
+- Standard-Sortierung der Kartenliste: alt→neu statt neu→alt.
+- Set-Icons in der Kartenliste zeigten einen sichtbaren Kasten um sich herum
+  (roh heruntergeladene Icons in teils sehr großer Original-Auflösung ohne
+  Skalierung) — jetzt auf eine feste, transparente Canvas-Größe skaliert,
+  wie die anderen Icon-Spalten.
+
+### Behoben — Manuelles Hinzufügen: Busy-Overlay + Sprachfilter + Bild-Bug
+- Beim Lesen einer manuell eingefügten Cardmarket-Seite erscheint jetzt ein
+  Busy-Overlay (vorher nur eine leicht übersehene Statusleisten-Meldung).
+- Die Sprache im Add-Dialog wird nicht mehr immer hart auf Englisch
+  vorbelegt, sondern aus den bereits gelesenen Angeboten der Seite erkannt
+  (häufigste Sprache) — wichtig gerade für JP/KO/ZH/Vintage-Drucke, dem
+  eigentlichen Zweck dieses Flows. Weiterhin voll editierbar.
+- Manuell aufgenommene Kartenfotos konnten als komplett schwarzes Bild
+  gespeichert werden, wenn der Cardmarket-Tab das Foto im Aufnahmemoment
+  noch nicht fertig gerendert hatte. Eine verdächtig einfarbige Aufnahme
+  wird jetzt einmal automatisch wiederholt, statt dauerhaft ein nutzloses
+  schwarzes Bild zu speichern.
+
+### Behoben — Katalogsuche grundlegend überarbeitet
+- Bindestrich-Bug behoben: pokemontcg.io speichert GX/EX-Suffixe wörtlich
+  mit Bindestrich ("Umbreon-GX"), mehrwortige Namen werden jetzt als
+  UND-verknüpfte Einzelwort-Wildcards gesucht statt als eine exakte
+  Leerzeichen-Phrase — behebt u. a. "Nachtara GX", "Mewtu GX",
+  "Mega-Zobiris & Despotar-GX".
+- Neue Symbol-Synonymtabelle: "Delta"/"Gold Star"/"Star" werden auf die
+  literalen Zeichen (δ/★) abgebildet, die pokemontcg.io tatsächlich
+  speichert.
+- Kaskaden-Fix: eine bereits übersetzte Namenskandidatur bekommt jetzt auch
+  die schrumpfende Präfix-Lockerung, statt nach einem einzigen gescheiterten
+  Versuch aufzugeben.
+- Preisschätz-Logik neu geordnet: exakte Sprache/exakter Zustand → exakte
+  Sprache mit Zustand ±1 Stufe (neuer harter Deckel) → Englisch/exakt →
+  Englisch ±1 Stufe. Kein unbegrenzter "Durchschnitt über alles"-Fallback
+  mehr — ohne einen ausreichend nahen Treffer gibt es jetzt ehrlich keinen
+  Preis statt einer irreführenden Schätzung.
+- Laufende Katalogsuche wird jetzt tatsächlich abgebrochen, wenn der
+  Ergebnis-Dialog geschlossen wird, statt im Hintergrund weiterzulaufen und
+  jede neue Suche bis zu ihrem Abschluss stillschweigend zu blockieren.
+
+### Neu (WIP) — Cross-Platform-Vorbereitung: macOS-Backend
+- `browser_price_reader.py` (1319 Zeilen) aufgeteilt in
+  `app/pricing/cardmarket_parsing.py` (reine, plattformunabhängige URL-Bau-
+  und Text-Parsing-Logik, von jeder Plattform gemeinsam genutzt) und
+  `app/pricing/browser/` (Plattform-Dispatch nach `sys.platform`:
+  `_windows.py`, neu `_macos.py`, Platzhalter `_unsupported.py` für Linux).
+  `browser_price_reader.py` selbst ist jetzt nur noch eine reine
+  Re-Export-Fassade -- kein anderer Aufrufer musste sich ändern. Volle
+  Testsuite bleibt grün, reine Umstrukturierung ohne Verhaltensänderung
+  unter Windows.
+- Erster Entwurf für `app/pricing/browser/_macos.py`: spiegelt die
+  Windows-Variante Funktion für Funktion, aber auf Basis der macOS
+  Bedienungshilfen-API (`AXUIElement`, PyObjC) statt Windows UI Automation.
+  **Wichtig: bisher ungetestet** -- kann in dieser Windows-Umgebung nicht
+  ausgeführt werden, muss auf echter Mac-Hardware live geprüft/korrigiert
+  werden (genau wie die Windows-Variante selbst nur durch mehrfaches
+  Live-Testen ihren jetzigen Stand erreicht hat).
+- Neue bedingte Abhängigkeiten in `requirements.txt`: `pywinauto` jetzt nur
+  noch für `sys_platform == "win32"`, neu `pyobjc-framework-{Cocoa,
+  ApplicationServices,Quartz}` für `sys_platform == "darwin"`.
+
 ### Geändert — Chrome-Fenster: mehrere Anläufe bis zur finalen Lösung
 - Ursprüngliches Problem: `--window-size` beim Chrome-Start wird
   stillschweigend ignoriert, wenn Chrome bereits (auch nur unsichtbar) im

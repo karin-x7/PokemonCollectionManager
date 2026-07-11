@@ -57,7 +57,10 @@ class SealedProductDetailPanel(QWidget):
         layout.addWidget(header)
 
         self._artwork = SealedArtworkView()
-        layout.addWidget(self._artwork, stretch=1)
+        # No stretch factor: SealedArtworkView now has a fixed height of its
+        # own (see its own docstring/comment), so a stretch weight here
+        # would be meaningless.
+        layout.addWidget(self._artwork)
         layout.addSpacing(20)
 
         form = QFormLayout()
@@ -86,6 +89,12 @@ class SealedProductDetailPanel(QWidget):
         self._history_button.setEnabled(False)
         self._history_button.clicked.connect(self._on_history_button_clicked)
         layout.addWidget(self._history_button)
+
+        # See card_detail_panel.py's identical trailing stretch for why:
+        # claims leftover vertical space itself so the header/artwork/form
+        # above it don't shift position depending on how many lines the
+        # "Price quality" rationale wraps to.
+        layout.addStretch(1)
 
     def show_empty(self) -> None:
         """Reset all fields to the empty placeholder value."""

@@ -41,11 +41,23 @@ class CardArtworkView(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setMinimumHeight(260)
         self.setMinimumWidth(200)
-        # Capped so it can't keep consuming a tall panel's every extra pixel
-        # of stretch space, crowding right up against the fields below it.
-        self.setMaximumHeight(420)
+        # A *fixed* height, not just a min/max range: this widget sits in
+        # CardDetailPanel's QVBoxLayout as its only ``stretch=1`` element, so
+        # a min/max range let it silently grow or shrink based on how much
+        # vertical space its siblings needed -- live-reported: the same card
+        # artwork rendered visibly smaller whenever the "Price quality" field
+        # wrapped to two lines (a long estimate rationale) instead of one (a
+        # short "Exact match" summary), since that stole stretch space from
+        # the artwork instead of the artwork having a size of its own.
+        # _card_rect() always fits the correct card aspect ratio inside
+        # whatever height it's given, so the previous per-card size "jump"
+        # was purely this layout accident, not a rendering bug. 360px
+        # (live-reported) overlapped the form fields below it on a normal-
+        # sized window -- 260px is the same value this widget's old
+        # min-height floor already used, so it's known to comfortably fit
+        # alongside the rest of the panel's content.
+        self.setFixedHeight(260)
         self._pixmap: QPixmap | None = None
         self._reverse_holo = False
 

@@ -41,7 +41,7 @@ class FakeService:
         self._error = error
         self.queries: list[str] = []
 
-    def search(self, query: str):
+    def search(self, query: str, is_cancelled=None):
         self.queries.append(query)
         if self._error is not None:
             raise self._error
@@ -136,6 +136,51 @@ def test_a_second_search_while_running_is_ignored(monkeypatch, main_window: Main
     controller.handle_search("xatu")
 
     assert service.queries == ["xatu"]
+
+
+def test_closing_the_dialog_while_still_running_cancels_and_unblocks_new_searches(
+    monkeypatch, main_window: MainWindow
+) -> None:
+    # Real, live-reported bug: closing the results dialog while a search was
+    # still running left every subsequent search silently "ignored" (see the
+    # "Catalogue search already running" log message) until the abandoned
+    # request eventually finished on its own. Simulates a still-running
+    # worker (start() never calls run()/emits finished) and a dialog close
+    # (its own `finished` signal firing, as a real Close-button click would).
+    monkeypatch.setattr(CatalogSearchWorker, "start", lambda self: None)
+    # Qt's own ``isInterruptionRequested()`` only reflects the flag while the
+    # QThread is actually ``isRunning()`` -- irrelevant to this headless test
+    # (``start()`` is a no-op above), so a plain call-recording spy stands in
+    # for the real method instead.
+    interruption_requests: list[object] = []
+    monkeypatch.setattr(
+        CatalogSearchWorker,
+        "requestInterruption",
+        lambda self: interruption_requests.append(self),
+    )
+
+    def fake_exec(self):
+        self.finished.emit(int(QDialog.DialogCode.Rejected))
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(CatalogSearchResultsDialog, "exec", fake_exec)
+    service = FakeService(results=[_XATU])
+    controller = CatalogSearchController(main_window, service)
+
+    controller.handle_search("xatu")
+
+    assert controller._worker is None
+    assert len(controller._cancelled_workers) == 1
+    first_worker = controller._cancelled_workers[0]
+    assert interruption_requests == [first_worker]
+
+    # The busy-guard no longer blocks a new search: a second call actually
+    # creates (and, via the same fake dialog close, immediately cancels) a
+    # brand new worker rather than being ignored by the "already running"
+    # guard (which would have left ``_cancelled_workers`` untouched here).
+    controller.handle_search("xatu")
+    assert len(controller._cancelled_workers) == 2
+    assert controller._cancelled_workers[1] is not first_worker
 
 
 def test_card_add_requested_forwards_from_the_real_results_dialog(

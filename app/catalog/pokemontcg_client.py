@@ -97,16 +97,14 @@ class PokemonTcgClientError(Exception):
 
 
 def _prefix_clause(field: str, term: str) -> str:
-    """Build a ``field:term*`` prefix-match clause.
+    """Build a single-word ``field:term*`` prefix-match clause.
 
-    A quoted phrase combined with a trailing wildcard (``"multi word"*``) is
-    rejected by the API with a 400 — measured live. So a multi-word term
-    becomes an exact quoted phrase instead (no wildcard); only single-word
-    terms get the trailing-wildcard prefix match.
+    Only ever called with one word at a time now (see :func:`_name_query_clause`
+    for why) -- a quoted phrase combined with a trailing wildcard
+    (``"multi word"*``) is rejected by the API with a 400, measured live, so
+    this must never be handed more than one word.
     """
     escaped = term.strip().replace('"', '\\"')
-    if " " in escaped:
-        return f'{field}:"{escaped}"'
     return f"{field}:{escaped}*"
 
 
@@ -116,6 +114,29 @@ def _exact_clause(field: str, term: str) -> str:
     return f'{field}:"{escaped}"' if " " in escaped else f"{field}:{escaped}"
 
 
+def _name_query_clause(name: str) -> str:
+    """Build the ``name`` field's own query clause: one independent,
+    AND-combined trailing-wildcard prefix match per word, not one quoted
+    exact phrase.
+
+    Live-confirmed data quirk that made this necessary: pokemontcg.io's own
+    stored ``name`` field literally uses a hyphen for GX/EX-type suffixes
+    ("Umbreon-GX", "Rayquaza-EX", "M Rayquaza-EX"), not a space -- a single
+    quoted exact phrase with a space (``name:"Umbreon GX"``) unreliably
+    matches (or outright fails) against that hyphenated token, regardless of
+    what the user actually typed. Splitting into independent per-word
+    prefix clauses, AND-combined the same way this module already combines
+    ``name``/``set.id``/``number`` with each other (space-separated clauses
+    are implicit AND in pokemontcg.io's own query syntax), sidesteps the
+    hyphen entirely -- each word matches on its own regardless of whatever
+    joins it to the next one in the real stored name -- and as a bonus also
+    finds combo-name cards a single phrase never would (e.g. "umbreon gx"
+    correctly also matching "Umbreon & Darkrai-GX"). Verified live against
+    the real API, not assumed.
+    """
+    return " ".join(_prefix_clause("name", word) for word in name.strip().split())
+
+
 def build_query(
     name: str | None = None,
     set_id: str | None = None,
@@ -123,9 +144,9 @@ def build_query(
 ) -> str:
     """Build a pokemontcg.io ``q`` query string from optional field filters.
 
-    ``name`` becomes a trailing-wildcard prefix match (or an exact phrase for
-    multi-word terms — see :func:`_prefix_clause`). ``set_id`` and ``number``
-    are matched exactly.
+    ``name`` becomes one AND-combined trailing-wildcard prefix match per
+    word (see :func:`_name_query_clause`). ``set_id`` and ``number`` are
+    matched exactly.
 
     ``set_id`` (not ``set.name``) is deliberate: pokemontcg.io's ``set.name``
     field is tokenised, so both a wildcard prefix (``set.name:base*``) and a
@@ -137,7 +158,7 @@ def build_query(
     """
     clauses: list[str] = []
     if name and name.strip():
-        clauses.append(_prefix_clause("name", name))
+        clauses.append(_name_query_clause(name))
     if set_id and set_id.strip():
         clauses.append(_exact_clause("set.id", set_id))
     if number and number.strip():

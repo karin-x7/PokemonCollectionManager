@@ -48,6 +48,11 @@ class CatalogSearchController(QObject):
         self._worker: CatalogSearchWorker | None = None
         self._results_dialog: CatalogSearchResultsDialog | None = None
         self._query: str = ""
+        #: Workers cancelled via :meth:`_on_dialog_finished` before they were
+        #: actually done -- kept alive here (not just dropped) so Qt doesn't
+        #: tear down a still-running ``QThread`` out from under itself. Each
+        #: one removes itself once its own ``finished`` fires for real.
+        self._cancelled_workers: list[CatalogSearchWorker] = []
 
     def handle_search(self, query: str) -> None:
         """Run a catalogue search for ``query`` and show the results."""
@@ -65,6 +70,7 @@ class CatalogSearchController(QObject):
         )
         self._results_dialog = CatalogSearchResultsDialog(self._main_window)
         self._results_dialog.add_requested.connect(self.card_add_requested)
+        self._results_dialog.finished.connect(self._on_dialog_finished)
         self._worker = CatalogSearchWorker(self._service, cleaned, parent=self)
         self._worker.succeeded.connect(self._on_succeeded)
         self._worker.failed.connect(self._on_failed)
@@ -77,6 +83,29 @@ class CatalogSearchController(QObject):
         # which can happen well before the dialog itself closes).
         self._results_dialog.exec()
         self._results_dialog = None
+
+    def _on_dialog_finished(self, _result: int) -> None:
+        """The results dialog closed (Close button, Esc, or window X).
+
+        If the search behind it is still running at that point, cancel it
+        and free up the busy-guard for a new search right away, instead of
+        silently blocking every next search attempt until the now-abandoned
+        request eventually finishes on its own -- live-reported as
+        "Catalogue search already running -- ignoring request" firing
+        repeatedly just from closing the dialog and searching again.
+        """
+        if self._worker is None:
+            return
+        worker = self._worker
+        worker.requestInterruption()
+        # Detach so a late result/error from the now-abandoned search never
+        # touches a dialog that no longer exists.
+        worker.succeeded.disconnect(self._on_succeeded)
+        worker.failed.disconnect(self._on_failed)
+        worker.finished.disconnect(self._cleanup_worker)
+        self._cancelled_workers.append(worker)
+        worker.finished.connect(lambda: self._cancelled_workers.remove(worker))
+        self._worker = None
 
     def _on_succeeded(self, matches: list[CatalogCard]) -> None:
         message = (
