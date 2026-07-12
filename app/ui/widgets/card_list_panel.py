@@ -17,6 +17,8 @@ left out of the context menu whenever more than one row is selected.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -399,6 +401,13 @@ class CardListPanel(QWidget):
             self.manual_add_confirmed.emit(
                 name, set_name, card_number, dialog.get_values(), info.photo_path, info.set_code
             )
+        elif info.photo_path:
+            # Cancelling here leaves nothing else to reference this temp
+            # capture -- live-reported: it was previously left behind
+            # forever (see cleanup_orphaned_temp_photos's own docstring for
+            # the full story). Best-effort: a missing/locked file must
+            # never turn a cancelled dialog into an error.
+            Path(info.photo_path).unlink(missing_ok=True)
 
     # -- Internals ---------------------------------------------------------- #
 

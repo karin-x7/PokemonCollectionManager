@@ -440,3 +440,46 @@ def test_prompt_add_manual_falls_back_to_english_without_a_detected_language(
     panel.prompt_add_manual(info, "https://www.cardmarket.com/en/Pokemon/Products/x")
 
     assert captured_kwargs["initial"].language is Language.ENGLISH
+
+
+def test_prompt_add_manual_deletes_the_temp_photo_when_cancelled(
+    monkeypatch, panel: CardListPanel, tmp_path
+) -> None:
+    # Live-reported bug: a manual-add's already-captured temp photo was
+    # never referenced again once the dialog was cancelled, so it sat
+    # around forever -- see cleanup_orphaned_temp_photos's own docstring.
+    dialog = MagicMock()
+    dialog.exec.return_value = QDialog.DialogCode.Rejected
+    monkeypatch.setattr("app.ui.widgets.card_list_panel.CardDetailsDialog", lambda **kwargs: dialog)
+    temp_photo = tmp_path / "tmp_abc123.png"
+    temp_photo.write_bytes(b"fake png bytes")
+    info = ProductInfo(
+        name="Venusaur", set_name="Legendary Collection", card_number="18",
+        photo_path=str(temp_photo),
+    )
+
+    panel.prompt_add_manual(info, "https://www.cardmarket.com/en/Pokemon/Products/x")
+
+    assert not temp_photo.exists()
+
+
+def test_prompt_add_manual_confirmed_leaves_the_temp_photo_for_finalizing(
+    monkeypatch, panel: CardListPanel, tmp_path
+) -> None:
+    dialog = MagicMock()
+    dialog.exec.return_value = QDialog.DialogCode.Accepted
+    dialog.get_identity.return_value = ("Venusaur", "Legendary Collection", "18")
+    dialog.get_values.return_value = CardDetailsValues(
+        language=Language.ENGLISH, condition=Condition.NEAR_MINT, quantity=1, notes=""
+    )
+    monkeypatch.setattr("app.ui.widgets.card_list_panel.CardDetailsDialog", lambda **kwargs: dialog)
+    temp_photo = tmp_path / "tmp_abc123.png"
+    temp_photo.write_bytes(b"fake png bytes")
+    info = ProductInfo(
+        name="Venusaur", set_name="Legendary Collection", card_number="18",
+        photo_path=str(temp_photo),
+    )
+
+    panel.prompt_add_manual(info, "https://www.cardmarket.com/en/Pokemon/Products/x")
+
+    assert temp_photo.exists()

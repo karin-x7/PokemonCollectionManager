@@ -13,11 +13,13 @@ from __future__ import annotations
 import pytest
 from PySide6.QtGui import QColor, QImage
 
+from app import config
 from app.pricing import sealed_image_capture
 from app.pricing.sealed_image_capture import (
     _find_product_image_control,
     _is_suspiciously_blank,
     capture_sealed_product_image,
+    cleanup_orphaned_temp_photos,
 )
 
 
@@ -255,3 +257,49 @@ def test_capture_returns_none_when_geometry_read_fails(tmp_path) -> None:
     result = capture_sealed_product_image(window, "Base Set Booster Box", dest_dir=tmp_path)
 
     assert result is None
+
+
+# --- cleanup_orphaned_temp_photos ------------------------------------------- #
+
+
+def test_cleanup_removes_orphaned_temp_photos_from_both_directories(
+    monkeypatch, tmp_path
+) -> None:
+    # Live-reported bug: a temp photo is only ever renamed to its final name
+    # once a card/sealed product add is actually confirmed -- cancelling
+    # that dialog (or a crash mid-flow) left it behind forever.
+    photos_dir = tmp_path / "photos"
+    sealed_dir = tmp_path / "sealed_photos"
+    photos_dir.mkdir()
+    sealed_dir.mkdir()
+    monkeypatch.setattr(config, "PHOTOS_DIR", photos_dir)
+    monkeypatch.setattr(config, "SEALED_PHOTOS_DIR", sealed_dir)
+    (photos_dir / "tmp_abc123.png").write_bytes(b"x")
+    (sealed_dir / "tmp_def456.png").write_bytes(b"x")
+
+    removed = cleanup_orphaned_temp_photos()
+
+    assert removed == 2
+    assert list(photos_dir.iterdir()) == []
+    assert list(sealed_dir.iterdir()) == []
+
+
+def test_cleanup_leaves_finalized_photos_untouched(monkeypatch, tmp_path) -> None:
+    photos_dir = tmp_path / "photos"
+    photos_dir.mkdir()
+    monkeypatch.setattr(config, "PHOTOS_DIR", photos_dir)
+    monkeypatch.setattr(config, "SEALED_PHOTOS_DIR", tmp_path / "sealed_photos")
+    finalized = photos_dir / "42.png"
+    finalized.write_bytes(b"x")
+
+    removed = cleanup_orphaned_temp_photos()
+
+    assert removed == 0
+    assert finalized.exists()
+
+
+def test_cleanup_handles_a_missing_directory(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(config, "PHOTOS_DIR", tmp_path / "does-not-exist")
+    monkeypatch.setattr(config, "SEALED_PHOTOS_DIR", tmp_path / "also-missing")
+
+    assert cleanup_orphaned_temp_photos() == 0

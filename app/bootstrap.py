@@ -12,6 +12,7 @@ import logging
 from app import config
 from app.database.connection import Database
 from app.logging_config import configure_logging
+from app.pricing.sealed_image_capture import cleanup_orphaned_temp_photos
 
 
 class BootstrapError(RuntimeError):
@@ -35,6 +36,7 @@ def bootstrap(log_level: int = logging.INFO) -> Database:
 
     try:
         config.ensure_directories()
+        cleanup_orphaned_temp_photos()
         database = Database()
         applied = database.initialize()
         logger.info(

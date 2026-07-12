@@ -30,6 +30,41 @@ from app.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+#: Glob pattern matching every temp file this module ever creates (see
+#: ``capture_sealed_product_image``'s own ``dest`` below) -- shared with
+#: :func:`cleanup_orphaned_temp_photos` so the two stay in sync.
+_TEMP_PHOTO_GLOB = "tmp_*.png"
+
+
+def cleanup_orphaned_temp_photos() -> int:
+    """Delete every leftover ``tmp_*.png`` in the photo directories.
+
+    A temp file here is only ever renamed to its final, id-based name once
+    a card/sealed product add is actually confirmed (see
+    ``CardService``/``SealedProductService``'s own ``_finalize_photo``) --
+    live-reported: cancelling the add dialog after a photo was already
+    captured (or the app crashing mid-flow) left it behind forever, since
+    nothing ever revisited it. Meant to be called once at startup, before
+    any capture could possibly be in progress, so no age check is needed --
+    every matching file at that point is guaranteed to be orphaned.
+
+    Returns the number of files removed (never raises; a locked/vanishing
+    file is skipped, matching this module's existing best-effort contract).
+    """
+    removed = 0
+    for directory in (config.PHOTOS_DIR, config.SEALED_PHOTOS_DIR):
+        if not directory.exists():
+            continue
+        for stale in directory.glob(_TEMP_PHOTO_GLOB):
+            try:
+                stale.unlink()
+                removed += 1
+            except OSError as exc:
+                logger.warning("Could not remove orphaned temp photo %s: %s", stale, exc)
+    if removed:
+        logger.info("Cleaned up %d orphaned temp photo(s).", removed)
+    return removed
+
 #: A live-reported, live-screenshotted bug: the captured photo was a solid
 #: black rectangle -- the product's ``Image`` control was found and its
 #: geometry read correctly, but the underlying Chrome tab hadn't actually

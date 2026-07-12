@@ -29,6 +29,19 @@ Blocker für diese Beta.
   überlappte die Formularfelder darunter -- auf 260px korrigiert (derselbe
   Wert, den die alte Min-Höhe schon sicher nutzte).
 
+### Behoben — Verwaiste temporäre Foto-Dateien sammelten sich an
+- Beim manuellen Hinzufügen einer Karte oder eines Sealed-Produkts per
+  Cardmarket-Link wird im Hintergrund automatisch ein Foto-Screenshot
+  erfasst und zunächst als temporäre Datei (`tmp_<id>.png`) abgelegt --
+  erst wenn das Hinzufügen tatsächlich bestätigt wird, bekommt sie ihren
+  endgültigen Namen. Brach man den Dialog stattdessen ab (oder die App
+  stürzte mittendrin ab), blieb diese temporäre Datei für immer liegen --
+  bei regelmäßiger Nutzung sammeln sich so mit der Zeit unbemerkt viele
+  verwaiste Bilddateien an. Jetzt: die Datei wird beim Abbrechen des
+  Dialogs sofort gelöscht, und beim App-Start räumt ein zusätzlicher
+  Sicherheitsnetz-Durchlauf noch verbliebene verwaiste Dateien auf (z. B.
+  nach einem Absturz).
+
 ### Hinzugefügt — Manuell per Link eingetragene Karten bekommen den englischen Namen
 - Der Name einer manuell per Cardmarket-Link hinzugefügten Karte kam bisher
   1:1 vom Seitentitel -- auf einer nicht-englischen Cardmarket-Domain (z. B.
