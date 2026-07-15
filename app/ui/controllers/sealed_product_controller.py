@@ -12,7 +12,7 @@ friendly message box instead of propagating as an exception.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, Signal
 
 from app.database.repositories.sealed_price_repository import SealedPriceRepository
 from app.logging_config import get_logger
@@ -30,6 +30,14 @@ class SealedProductController(QObject):
     """Wires a :class:`SealedProductListPanel`/:class:`SealedProductDetailPanel`
 
     to a :class:`SealedProductService`."""
+
+    #: Emitted with the new product's id right after it's successfully
+    #: added -- mirrors :attr:`~app.ui.controllers.card_controller.
+    #: CardController.card_added`: :class:`~app.ui.main_window.MainWindow`
+    #: connects this straight to :meth:`~app.ui.controllers.
+    #: sealed_price_controller.SealedPriceController.start_lookup` so
+    #: adding a sealed product and fetching its price happen in one step.
+    product_added = Signal(int)
 
     def __init__(
         self,
@@ -49,6 +57,7 @@ class SealedProductController(QObject):
 
         panel.selection_changed.connect(self._on_selection_changed)
         panel.edit_requested.connect(self._on_edit)
+        panel.price_edit_requested.connect(self._on_price_edit)
         panel.delete_requested.connect(self._on_delete)
         if history_dock is not None:
             history_dock.history_reset_requested.connect(self._on_history_reset)
@@ -88,10 +97,18 @@ class SealedProductController(QObject):
         self.refresh()
         self._panel.select_product(product.id)
         self._sync_detail_panel()
+        self.product_added.emit(product.id)
 
     def _on_edit(self, product_id: int, values: SealedProductDetailsValues) -> None:
         try:
             self._service.update_product_details(product_id, values)
+        except ServiceError as exc:
+            self._panel.show_error(str(exc))
+        self.refresh()
+
+    def _on_price_edit(self, product_id: int, price: float) -> None:
+        try:
+            self._service.set_manual_price(product_id, price)
         except ServiceError as exc:
             self._panel.show_error(str(exc))
         self.refresh()

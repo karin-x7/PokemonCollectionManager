@@ -76,7 +76,13 @@ _SET_NAME_FUZZY_CUTOFF = 0.72
 #: (e.g. "base" -> "Base Set") — below this, too many short/generic words
 #: would spuriously prefix-match unrelated set names.
 _SET_NAME_PREFIX_MIN_LENGTH = 4
-_DEFAULT_MAX_RESULTS = 25
+#: Raised alongside PokemonTcgClient.search()'s own page_size bump (25 ->
+#: 250, see its docstring) -- fetching every match from the API only to
+#: still truncate the display down to 25 would silently reintroduce the
+#: same "Charizard ex" -type dropped-match bug one level up. The results
+#: dialog is an ordinary scrollable QTableWidget, so a longer list is just
+#: more scrolling, not a layout problem.
+_DEFAULT_MAX_RESULTS = 100
 
 
 #: Prefix lengths tried (longest first) once the exact name search finds

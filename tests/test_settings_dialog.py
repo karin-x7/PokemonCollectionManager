@@ -1,4 +1,4 @@
-"""Tests for SettingsDialog's info/help/FAQ tabs."""
+"""Tests for SettingsDialog's info/help/FAQ/settings tabs."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import QUrl
-from PySide6.QtWidgets import QLabel, QTabWidget, QTextBrowser
+from PySide6.QtWidgets import QComboBox, QLabel, QTabWidget, QTextBrowser
 
 from app.ui.app import build_application
 from app.ui.dialogs.settings_dialog import _FAQ_HTML, _HELP_HTML, _HELP_INDEX, SettingsDialog
@@ -37,13 +37,52 @@ def _tab_text(dialog: SettingsDialog, tab_label: str) -> str:
     raise AssertionError(f"No tab named {tab_label!r}")
 
 
-def test_has_faq_help_and_info_tabs_in_that_order(qapp) -> None:
+def test_has_faq_help_settings_and_info_tabs_in_that_order(qapp) -> None:
     dialog = SettingsDialog()
 
     tabs = dialog.findChild(QTabWidget)
 
     assert tabs is not None
-    assert [tabs.tabText(i) for i in range(tabs.count())] == ["FAQ", "Help", "Info"]
+    assert [tabs.tabText(i) for i in range(tabs.count())] == ["FAQ", "Help", "Settings", "Info"]
+
+
+def test_settings_tab_has_germany_only_checkbox_and_emits_on_toggle(qapp) -> None:
+    dialog = SettingsDialog()
+    changes = []
+    dialog.germany_only_changed.connect(changes.append)
+
+    assert dialog._germany_only_checkbox.isChecked() is False
+    dialog._germany_only_checkbox.setChecked(True)
+
+    assert changes == [True]
+
+
+def test_set_germany_only_does_not_emit_the_changed_signal(qapp) -> None:
+    dialog = SettingsDialog()
+    changes = []
+    dialog.germany_only_changed.connect(changes.append)
+
+    dialog.set_germany_only(True)
+
+    assert dialog._germany_only_checkbox.isChecked() is True
+    assert changes == []
+
+
+def test_settings_tab_notes_more_locations_are_coming(qapp) -> None:
+    labels = SettingsDialog().findChildren(QLabel)
+    assert any("More locations coming soon" in label.text() for label in labels)
+
+
+def test_settings_tab_has_a_disabled_browser_placeholder(qapp) -> None:
+    dialog = SettingsDialog()
+    combo = dialog.findChild(QComboBox)
+
+    assert combo is not None
+    assert combo.isEnabled() is False
+    assert combo.currentText() == "Google Chrome"
+
+    labels = dialog.findChildren(QLabel)
+    assert any("More browsers coming soon" in label.text() for label in labels)
 
 
 def test_info_tab_credits_karin_with_no_link(qapp) -> None:

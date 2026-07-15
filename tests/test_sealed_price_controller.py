@@ -20,6 +20,8 @@ from app.ui.app import build_application
 from app.ui.controllers.sealed_price_controller import SealedPriceController
 from app.ui.widgets.busy_overlay import BusyOverlay
 from app.ui.widgets.sealed_product_detail_panel import SealedProductDetailPanel
+from app.ui.widgets.sealed_product_list_panel import SealedProductListPanel
+from app.ui.workers.open_sealed_cardmarket_link_worker import OpenSealedCardmarketLinkWorker
 from app.ui.workers.sealed_price_lookup_worker import SealedPriceLookupWorker
 
 _PRICED = SealedProduct(
@@ -29,16 +31,29 @@ _UNPRICED = SealedProduct(id=1, name="Base Set Booster Box", current_price=None)
 
 
 class FakeSealedPriceService:
-    def __init__(self, product: SealedProduct | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        product: SealedProduct | None = None,
+        error: Exception | None = None,
+        display_url: str | None = "https://www.cardmarket.com/en/Pokemon/Products/Booster-Boxes/Base-Set-Booster-Box",
+    ) -> None:
         self._product = product
         self._error = error
+        self._display_url = display_url
         self.calls: list[int] = []
+        self.link_calls: list[int] = []
 
     def update_price_for_product(self, product_id: int) -> SealedProduct:
         self.calls.append(product_id)
         if self._error is not None:
             raise self._error
         return self._product
+
+    def resolve_display_url(self, product_id: int) -> str | None:
+        self.link_calls.append(product_id)
+        if self._error is not None:
+            raise self._error
+        return self._display_url
 
 
 class FakeProductController:
@@ -73,6 +88,17 @@ def synchronous_worker(monkeypatch):
         self.finished.emit()
 
     monkeypatch.setattr(SealedPriceLookupWorker, "start", fake_start)
+    monkeypatch.setattr(OpenSealedCardmarketLinkWorker, "start", fake_start)
+
+
+@pytest.fixture(autouse=True)
+def fake_open_cardmarket_link(monkeypatch):
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "app.ui.workers.open_sealed_cardmarket_link_worker.open_cardmarket_link",
+        lambda url: calls.append(url),
+    )
+    return calls
 
 
 @pytest.fixture
@@ -97,7 +123,7 @@ def test_successful_lookup_refreshes_and_shows_price(main_window) -> None:
 
     assert service.calls == [1]
     assert product_controller.refresh_calls == 1
-    assert "5000.00" in main_window.statusBar().currentMessage()
+    assert "5.000,00" in main_window.statusBar().currentMessage()
 
 
 def test_lookup_with_no_price_found_still_refreshes(main_window) -> None:
@@ -228,3 +254,53 @@ def test_button_is_reenabled_after_a_completed_lookup(main_window) -> None:
     detail_panel.price_lookup_requested.emit(1)
 
     assert detail_panel._price_button.isEnabled()
+
+
+def test_context_menu_signal_triggers_open_cardmarket_link(main_window, fake_open_cardmarket_link) -> None:
+    service = FakeSealedPriceService()
+    product_controller = FakeProductController()
+    list_panel = SealedProductListPanel()
+    SealedPriceController(
+        main_window, lambda: (service, None), product_controller, list_panel=list_panel
+    )
+
+    list_panel.open_cardmarket_link_requested.emit(1)
+
+    assert service.link_calls == [1]
+    assert fake_open_cardmarket_link == [service._display_url]
+    assert "opened" in main_window.statusBar().currentMessage()
+
+
+def test_open_cardmarket_link_with_no_known_url_shows_message(main_window, fake_open_cardmarket_link) -> None:
+    service = FakeSealedPriceService(display_url=None)
+    product_controller = FakeProductController()
+    controller = SealedPriceController(main_window, lambda: (service, None), product_controller)
+
+    controller.open_cardmarket_link(1)
+
+    assert fake_open_cardmarket_link == []
+    assert "No Cardmarket link known" in main_window.statusBar().currentMessage()
+
+
+def test_open_cardmarket_link_is_ignored_while_a_lookup_is_running(monkeypatch, main_window) -> None:
+    service = FakeSealedPriceService(product=_PRICED)
+    product_controller = FakeProductController()
+    controller = _controller(main_window, service, product_controller)
+
+    monkeypatch.setattr(SealedPriceLookupWorker, "start", lambda self: self.run())
+    controller.start_lookup(1)
+    controller.open_cardmarket_link(1)
+
+    assert service.link_calls == []
+
+
+def test_lookup_is_ignored_while_open_cardmarket_link_is_running(monkeypatch, main_window) -> None:
+    service = FakeSealedPriceService(product=_PRICED)
+    product_controller = FakeProductController()
+    controller = _controller(main_window, service, product_controller)
+
+    monkeypatch.setattr(OpenSealedCardmarketLinkWorker, "start", lambda self: self.run())
+    controller.open_cardmarket_link(1)
+    controller.start_lookup(1)
+
+    assert service.calls == []

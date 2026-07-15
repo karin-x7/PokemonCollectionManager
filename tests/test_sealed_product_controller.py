@@ -10,7 +10,7 @@ import pytest
 
 from app.database.connection import Database
 from app.database.repositories.sealed_product_repository import SealedProductRepository
-from app.models.enums import Language
+from app.models.enums import Language, PriceQuality
 from app.models.sealed_product import SealedProductDetailsValues
 from app.services.sealed_product_service import SealedProductService
 from app.ui.app import build_application
@@ -43,6 +43,45 @@ def test_add_product_persists_and_refreshes_panel(controller: SealedProductContr
     controller.add_product("Base Set Booster Box", "Booster Box", _VALUES, None)
 
     assert _names(controller) == ["Base Set Booster Box"]
+
+
+def test_add_product_emits_product_added_for_immediate_price_lookup(
+    controller: SealedProductController,
+) -> None:
+    # Live-reported (tester feedback): adding a sealed product and fetching
+    # its price should be one step, not two -- mirrors CardController's own
+    # card_added signal.
+    received: list[int] = []
+    controller.product_added.connect(received.append)
+
+    controller.add_product("Base Set Booster Box", "Booster Box", _VALUES, None)
+
+    product_id = controller._panel.selected_product_id()
+    assert received == [product_id]
+
+
+def test_price_edit_requested_persists_manual_price(controller: SealedProductController) -> None:
+    controller.add_product("Base Set Booster Box", "Booster Box", _VALUES, None)
+    product_id = controller._panel.selected_product_id()
+
+    controller._panel.price_edit_requested.emit(product_id, 123.45)
+
+    product = controller._service.get_product(product_id)
+    assert product.current_price == 123.45
+    assert product.price_quality is PriceQuality.MANUAL
+
+
+def test_price_edit_requested_with_invalid_price_shows_error(
+    monkeypatch, controller: SealedProductController
+) -> None:
+    controller.add_product("Base Set Booster Box", "Booster Box", _VALUES, None)
+    product_id = controller._panel.selected_product_id()
+    errors: list[str] = []
+    monkeypatch.setattr(controller._panel, "show_error", errors.append)
+
+    controller._panel.price_edit_requested.emit(product_id, -1.0)
+
+    assert len(errors) == 1
 
 
 def test_refresh_shows_every_owned_product(controller: SealedProductController) -> None:

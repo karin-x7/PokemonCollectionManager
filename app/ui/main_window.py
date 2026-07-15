@@ -38,6 +38,7 @@ from app.database.repositories.collection_repository import CollectionRepository
 from app.database.repositories.price_repository import PriceRepository
 from app.database.repositories.sealed_price_repository import SealedPriceRepository
 from app.database.repositories.sealed_product_repository import SealedProductRepository
+from app.database.repositories.settings_repository import SettingsRepository
 from app.database.repositories.wantlist_repository import WantlistRepository
 from app.i18n import tr
 from app.logging_config import get_logger
@@ -78,6 +79,7 @@ from app.ui.widgets.price_history_dock import PriceHistoryDock
 from app.ui.widgets.sealed_price_history_dock import SealedPriceHistoryDock
 from app.ui.widgets.sealed_product_detail_panel import SealedProductDetailPanel
 from app.ui.widgets.sealed_product_list_panel import SealedProductListPanel
+from app.ui.widgets.settings_panel import SettingsPanel
 from app.ui.widgets.statistics_panel import StatisticsPanel
 from app.ui.widgets.wantlist_panel import WantlistPanel
 from app.ui.workers.update_check_worker import UpdateCheckWorker
@@ -326,10 +328,18 @@ class MainWindow(QMainWindow):
         self._act_tab_sealed = QAction(tr("Sealed"), self)
         self._act_tab_wantlist = QAction("Wantlist", self)
         self._act_tab_stats = QAction(tr("Statistik"), self)
+        # A fifth, otherwise-ordinary nav tab -- unlike Karten/Sealed/
+        # Wantlist/Statistik above, "Settings" has nothing to do with the
+        # collection itself, but user-requested to live as a real top-level
+        # tab (in the main toolbar), not buried as a sub-tab of the "Info &
+        # Help" dialog (see SettingsPanel/SettingsController for where its
+        # own content -- the seller-location filter -- actually lives).
+        self._act_tab_settings = QAction("Settings", self)
         self._act_tab_cards.setCheckable(True)
         self._act_tab_sealed.setCheckable(True)
         self._act_tab_wantlist.setCheckable(True)
         self._act_tab_stats.setCheckable(True)
+        self._act_tab_settings.setCheckable(True)
         self._act_tab_cards.setChecked(True)
         tab_nav_group = QActionGroup(self)
         tab_nav_group.setExclusive(True)
@@ -337,11 +347,13 @@ class MainWindow(QMainWindow):
         tab_nav_group.addAction(self._act_tab_sealed)
         tab_nav_group.addAction(self._act_tab_wantlist)
         tab_nav_group.addAction(self._act_tab_stats)
-        # Tab order: Karten, Sealed, Wantlist, Statistik.
+        tab_nav_group.addAction(self._act_tab_settings)
+        # Tab order: Karten, Sealed, Wantlist, Statistik, Settings.
         self._act_tab_cards.triggered.connect(lambda: self._switch_central_tab(0))
         self._act_tab_sealed.triggered.connect(lambda: self._switch_central_tab(1))
         self._act_tab_wantlist.triggered.connect(lambda: self._switch_central_tab(2))
         self._act_tab_stats.triggered.connect(lambda: self._switch_central_tab(3))
+        self._act_tab_settings.triggered.connect(lambda: self._switch_central_tab(4))
         toolbar.addAction(self._act_tab_cards)
         toolbar.addAction(self._act_tab_sealed)
         toolbar.addAction(self._act_tab_wantlist)
@@ -355,6 +367,8 @@ class MainWindow(QMainWindow):
         self._act_settings.triggered.connect(self.settings_requested)
         toolbar.addAction(self._act_export)
         toolbar.addAction(self._act_import)
+        # Between Import and "Info and help" (user-specified position).
+        toolbar.addAction(self._act_tab_settings)
         toolbar.addAction(self._act_settings)
 
     def _build_central(self) -> None:
@@ -414,7 +428,10 @@ class MainWindow(QMainWindow):
             thread_database = Database(self._database.path)
             thread_database.initialize()
             service = PriceService(
-                CardRepository(thread_database), PriceRepository(thread_database), pokemontcg_client
+                CardRepository(thread_database),
+                PriceRepository(thread_database),
+                pokemontcg_client,
+                settings_repository=SettingsRepository(thread_database),
             )
             return service, thread_database
 
@@ -422,7 +439,9 @@ class MainWindow(QMainWindow):
         self.sealed_product_detail_panel = SealedProductDetailPanel()
         self.sealed_product_panel.setMinimumWidth(_SEALED_PRODUCT_LIST_PANEL_MIN_WIDTH)
         self.sealed_product_detail_panel.setMinimumWidth(_SEALED_PRODUCT_DETAIL_PANEL_MIN_WIDTH)
-        sealed_product_service = SealedProductService(SealedProductRepository(self._database))
+        sealed_product_service = SealedProductService(
+            SealedProductRepository(self._database), SealedPriceRepository(self._database)
+        )
 
         self.sealed_price_history_dock = SealedPriceHistoryDock(self)
         self.sealed_price_history_dock.hide()
@@ -455,6 +474,8 @@ class MainWindow(QMainWindow):
             list_panel=self.card_list_panel,
             parent=self,
         )
+        self.card_controller.card_added.connect(self.price_controller.start_lookup)
+        self.cardmarket_search_controller.link_saved.connect(self.price_controller.start_lookup)
         self.statistics_panel.price_lookup_requested.connect(self.price_controller.start_lookup)
         self.statistics_panel.sealed_price_lookup_requested.connect(
             lambda product_id: self.sealed_price_controller.start_lookup(product_id)
@@ -492,7 +513,9 @@ class MainWindow(QMainWindow):
         )
 
         self.backup_controller = BackupController(self, self._database, parent=self)
-        self.settings_controller = SettingsController(self, self.backup_controller, parent=self)
+        self.settings_controller = SettingsController(
+            self, self.backup_controller, SettingsRepository(self._database), parent=self
+        )
 
         self.sealed_product_controller = SealedProductController(
             self.sealed_product_panel,
@@ -516,7 +539,9 @@ class MainWindow(QMainWindow):
             thread_database = Database(self._database.path)
             thread_database.initialize()
             service = SealedPriceService(
-                SealedProductRepository(thread_database), SealedPriceRepository(thread_database)
+                SealedProductRepository(thread_database),
+                SealedPriceRepository(thread_database),
+                settings_repository=SettingsRepository(thread_database),
             )
             return service, thread_database
 
@@ -526,10 +551,14 @@ class MainWindow(QMainWindow):
             self.sealed_product_controller,
             detail_panel=self.sealed_product_detail_panel,
             statistics_controller=self.statistics_controller,
+            list_panel=self.sealed_product_panel,
             parent=self,
         )
         self.sealed_add_requested.connect(self.sealed_entry_controller.start)
         self.sealed_product_panel.price_lookup_requested.connect(
+            self.sealed_price_controller.start_lookup
+        )
+        self.sealed_product_controller.product_added.connect(
             self.sealed_price_controller.start_lookup
         )
 
@@ -558,7 +587,10 @@ class MainWindow(QMainWindow):
             thread_database = Database(self._database.path)
             thread_database.initialize()
             thread_pricing = PriceService(
-                CardRepository(thread_database), PriceRepository(thread_database), pokemontcg_client
+                CardRepository(thread_database),
+                PriceRepository(thread_database),
+                pokemontcg_client,
+                settings_repository=SettingsRepository(thread_database),
             )
             service = WantlistPriceService(WantlistRepository(thread_database), thread_pricing)
             return service, thread_database
@@ -610,11 +642,15 @@ class MainWindow(QMainWindow):
         wantlist_page_layout.setContentsMargins(10, 10, 10, 10)
         wantlist_page_layout.addWidget(self.wantlist_panel)
 
+        self.settings_panel = SettingsPanel()
+        self.settings_controller.wire_settings_panel(self.settings_panel)
+
         tabs = QTabWidget()
         tabs.addTab(splitter, tr("Karten"))
         tabs.addTab(sealed_splitter, tr("Sealed"))
         tabs.addTab(wantlist_page, "Wantlist")
         tabs.addTab(self.statistics_panel, tr("Statistiken"))
+        tabs.addTab(self.settings_panel, "Settings")
         # Navigated exclusively via the toolbar buttons above (_act_tab_cards/
         # _act_tab_stats) -- the tab bar itself would just be a redundant
         # second way to do the same thing.
@@ -686,6 +722,7 @@ class MainWindow(QMainWindow):
         self._act_tab_sealed.setChecked(index == 1)
         self._act_tab_wantlist.setChecked(index == 2)
         self._act_tab_stats.setChecked(index == 3)
+        self._act_tab_settings.setChecked(index == 4)
         # The catalogue search and manual card entry only make sense on
         # "Karten"; the sealed-add button only on "Sealed" -- each tab's
         # own controls occupy the same toolbar slot, swapped out rather

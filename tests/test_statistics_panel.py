@@ -99,8 +99,8 @@ def test_shows_per_collection_rows_and_grand_total(panel: StatisticsPanel) -> No
     assert panel._per_collection_table.rowCount() == 1
     assert panel._per_collection_table.item(0, 0).text() == "Binder"
     assert panel._per_collection_table.item(0, 1).text() == "2"
-    assert "25.00" in panel._per_collection_table.item(0, 2).text()
-    assert "25.00" in panel._grand_total_label.text()
+    assert "25,00" in panel._per_collection_table.item(0, 2).text()
+    assert "25,00" in panel._grand_total_label.text()
 
 
 def test_shows_combined_total_and_stat_tiles(panel: StatisticsPanel) -> None:
@@ -116,10 +116,10 @@ def test_shows_combined_total_and_stat_tiles(panel: StatisticsPanel) -> None:
 
     panel.show_overview(overview)
 
-    assert "5025.00" in panel._combined_total_label.text()
-    assert "25.00" in panel._cards_tile_value.text()
+    assert "5.025,00" in panel._combined_total_label.text()
+    assert "25,00" in panel._cards_tile_value.text()
     assert "3" in panel._cards_tile_subtext.text()
-    assert "5000.00" in panel._sealed_tile_value.text()
+    assert "5.000,00" in panel._sealed_tile_value.text()
     assert "2" in panel._sealed_tile_subtext.text()
 
 
@@ -144,7 +144,7 @@ def test_shows_most_expensive_cards(panel: StatisticsPanel) -> None:
 
     assert panel._expensive_table.rowCount() == 1
     assert panel._expensive_table.item(0, 0).text() == "Charizard"
-    assert "500.00" in panel._expensive_table.item(0, 2).text()
+    assert "500,00" in panel._expensive_table.item(0, 2).text()
 
 
 def test_shows_price_increase_highlight(panel: StatisticsPanel) -> None:
@@ -161,9 +161,9 @@ def test_shows_price_increase_highlight(panel: StatisticsPanel) -> None:
 
     text = panel._price_increase_label.text()
     assert "Venusaur" in text
-    assert "10.00" in text
-    assert "20.00" in text
-    assert "100.0" in text
+    assert "10,00" in text
+    assert "20,00" in text
+    assert "100,0" in text
 
 
 def test_shows_placeholder_when_no_price_increase(panel: StatisticsPanel) -> None:
@@ -334,7 +334,7 @@ def test_shows_sealed_category_breakdown(panel: StatisticsPanel) -> None:
     panel.show_overview(overview)
 
     assert panel._sealed_category_table.item(0, 0).text() == "Booster Box"
-    assert "5000.00" in panel._sealed_category_table.item(0, 1).text()
+    assert "5.000,00" in panel._sealed_category_table.item(0, 1).text()
 
 
 def test_shows_most_expensive_sealed_products(panel: StatisticsPanel) -> None:
@@ -347,7 +347,7 @@ def test_shows_most_expensive_sealed_products(panel: StatisticsPanel) -> None:
     assert panel._sealed_expensive_table.rowCount() == 1
     assert panel._sealed_expensive_table.item(0, 0).text() == "Base Set Booster Box"
     assert panel._sealed_expensive_table.item(0, 1).text() == "Booster Box"
-    assert "5000.00" in panel._sealed_expensive_table.item(0, 2).text()
+    assert "5.000,00" in panel._sealed_expensive_table.item(0, 2).text()
 
 
 def test_shows_sealed_stale_price_products_with_days_and_never_updated(

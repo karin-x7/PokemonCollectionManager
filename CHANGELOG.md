@@ -6,6 +6,127 @@ Versionierung nach [SemVer](https://semver.org).
 
 ## [Unreleased]
 
+### Neu — Fußnote: Preis mit oder ohne Verkäuferstandort-Filter gefunden
+- Bei aktivem "Only sellers from Germany" war bisher nicht erkennbar, ob ein
+  angezeigter Preis tatsächlich von einem deutschen Verkäufer stammt oder
+  (weil in Deutschland kein passendes Angebot gefunden wurde) auf die
+  europaweite Suche zurückgefallen ist. Die Preisqualität-Erklärung (Karten
+  wie Sealed-Produkte, im Detailpanel sicht- und als Tooltip abrufbar) endet
+  jetzt mit "Seller location: Germany." bzw. "Seller location: all
+  countries." -- nur sichtbar, wenn die Einstellung überhaupt aktiv ist.
+
+### Korrigiert — "Info and help"-Label, Welcome-Text gekürzt
+- Der Button hieß kurzzeitig "Info & Help" (task #155): im Fenster-Titel
+  wird das "&" wörtlich angezeigt, im Toolbar-Button wird es dagegen als
+  Tastenkürzel-Markierung interpretiert und verschwindet -- optisch
+  inkonsistent. Zurückgesetzt auf "Info and help".
+- Der Hinweis auf die europäische Zahlenformatierung im Welcome-Fenster
+  entfernt (unnötiges Detail für den ersten Start; steht weiterhin
+  vollständig im Help-Reiter).
+
+### Neu — Settings als eigenständiger Reiter
+- Die "Only sellers from Germany"-Einstellung (bislang im "Info and
+  help"-Dialog) hat jetzt einen eigenen, immer sichtbaren "Settings"-Reiter
+  in der Toolbar (zwischen Import und Info & Help) -- macht die Option
+  deutlich auffindbarer als versteckt in einem Info-Dialog. Enthält
+  außerdem einen "More locations coming soon"-Hinweis und einen deaktivierten
+  Browser-Auswahl-Platzhalter ("Google Chrome", weitere Browser folgen).
+- Der Button "Info and help" heißt jetzt "Info & Help".
+
+### Neu — Sealed: "Open Cardmarket link" im Kontextmenü
+- Sealed-Produkte haben jetzt dieselbe "Cardmarket-Link öffnen"-Aktion im
+  Rechtsklick-Kontextmenü wie Karten: öffnet die Cardmarket-Seite in einem
+  normalen, sichtbaren Chrome-Fenster zum selbst Durchsehen (Verkäufer,
+  Fotos, andere Angebote, ...), ohne wie die automatische Preisabfrage den
+  Tab sofort wieder zu schließen.
+
+### Behoben — Verkäuferstandort-Filter konnte zu einer Cloudflare-Sperre führen
+- Live-reported (ernst zu nehmen): mehrere Cardmarket-Tabs wurden praktisch
+  ohne Pause hintereinander geöffnet, was zu einer Cloudflare-Sperre führte.
+  Dieses Projekt hatte dazu bereits einen bekannten Vorfall (6 Tabs ohne
+  Pause = temporäre Cardmarket-Kontosperre, siehe PROJECT_PROGRESS.md,
+  "Verworfener Versuch") -- die neue 4-Stufen-Kette konnte das mit bis zu
+  zehn Tabs pro Preisabfrage wiederholen, nur schlimmer. Zwei Fixes: (1)
+  jeder einzelne Cardmarket-Tab-Aufruf in der gesamten Preis-Leiter (nicht
+  nur der Alternativ-Versions-Tab wie bisher) hat jetzt eine verpflichtende
+  Pause davor; (2) die Verkäuferstandort-Kette ist von 4 auf 3 Stufen
+  reduziert -- die "Puffersuche mit Länderfilter" entfällt, die Puffersuche
+  läuft direkt europaweit wie vor dem Feature. Halbiert die maximale
+  Tab-Zahl pro Abfrage und verringert damit das Sperr-Risiko deutlich.
+
+### Neu — Verkäuferstandort-Filter (Deutschland)
+- Neue globale Einstellung ("Infos und Einstellungen" → Info-Tab): "Only
+  sellers from Germany". Standard ist weiterhin europaweit (kein Filter,
+  unverändertes Verhalten). Ist die Einstellung aktiv, gilt für jede
+  automatische Preisabfrage (Karten, Sealed-Produkte, Wantlist) eine
+  4-stufige Fallback-Kette statt der bisherigen einen Leiter: (1) exakter
+  Treffer (Sprache/Zustand) mit Verkäufern aus Deutschland, (2) exakter
+  Treffer über alle Länder, (3) die bestehende Puffersuche
+  (Zustand ±1/Englisch-Fallback bei Karten, andere Sprache bei Sealed) mit
+  Verkäufern aus Deutschland, (4) dieselbe Puffersuche über alle Länder --
+  jede Stufe läuft nur, wenn die vorherige nichts gefunden hat.
+- Cardmarkets `sellerCountry`-Filter-ID für Deutschland (`7`) wurde live
+  bestätigt; sie folgt keiner erkennbaren Reihenfolge (insbesondere nicht
+  der alphabetischen Anzeige-Reihenfolge im Filter-Dropdown), weshalb
+  bewusst nur Deutschland eingebaut wurde und keine geratenen IDs für
+  weitere Länder.
+
+### Neu — Europäische Zahlenformatierung
+- Alle Preisanzeigen (Kartenliste, Detailpanel, Preisverlauf inkl.
+  Tooltips, Statistik, Wantlist, Export) zeigen Zahlen jetzt im
+  europäischen Format ("1.234,00" statt "1234.00"), unabhängig vom
+  System-Gebietsschema.
+
+### Behoben — Verkäuferstandort-Filter fand nie einen Preis
+- Live-reported: mit aktiviertem "Only sellers from Germany" endete jede
+  Preisabfrage sofort mit "kein Preis gefunden", nach nur einem einzigen
+  Seitenabruf. Ursache: die Lesefunktionen (`read_offers_for_card`/
+  `read_sealed_offers_for_card`) werfen einen Fehler statt eine leere Liste
+  zurückzugeben, sobald eine gefilterte Seite null Angebote zeigt --
+  bislang unproblematisch, weil das kaum vorkam, aber mit einem enger
+  gefassten Länderfilter (z. B. "Deutschland") ist "null Angebote für
+  dieses eine Land" ein häufiger, völlig normaler Fall (Cardmarket selbst:
+  "Due to your filter settings, no available offers are shown."). Die neue
+  4-Stufen-Kette hat diesen Fehler bei Stufe 1 nicht abgefangen und ist
+  sofort abgebrochen, statt zu Stufe 2 (alle Länder) weiterzugehen -- jetzt
+  gefangen und als "hier nichts gefunden, nächste Stufe versuchen"
+  behandelt.
+
+### Behoben — Manuelles Hinzufügen/Preisabfrage schlug fehl, wenn schon ein Tab für dieselbe Karte offen war
+- Live-reported (von einem Beta-Tester gefunden): "Cardmarket tab ... was
+  not found in time", obwohl Chrome die richtige Seite bereits anzeigte.
+  Ursache: die Fenstererkennung vergleicht den Chrome-Fenstertitel gegen
+  einen Schnappschuss von vor dem Öffnen und verwirft jedes Fenster mit
+  unverändertem Titel als "alten, fremden Tab" (Schutz gegen falsches
+  Zuordnen zu einem Preis aus einem Live-Vorfall). War aber schon ein Tab
+  für dieselbe Karte offen (z. B. Überbleibsel eines vorherigen, wegen
+  Timeout abgebrochenen Versuchs), zeigte dieses Fenster schon vorher genau
+  denselben Titel -- er "änderte" sich also aus Sicht des Schnappschusses
+  nie. Fix: bei unverändertem Titel jetzt zusätzliche Prüfung, ob der
+  sichtbare Adressleisten-Text den URL-Teilnamen der gesuchten Karte
+  enthält, bevor das Fenster verworfen wird -- der ursprüngliche Schutz vor
+  echten Fremd-Tabs bleibt erhalten.
+
+### Behoben — Timeout beim Öffnen der Cardmarket-Seite zu knapp bemessen
+- Live-reported (derselbe Tester, wiederholte "not found in time"-Fehler,
+  jeweils gefolgt von einem erfolgreichen manuellen Neuversuch kurz danach
+  -- typisches Muster für einen langsamen Chrome-Kaltstart, nicht für einen
+  strukturellen Fehler). Timeout von 30s über 60s auf 90s erhöht;
+  zusätzliches Diagnose-Logging (kalter/warmer Chrome-Start, tatsächlich
+  verstrichene Wartezeit) ergänzt, falls auch das noch nicht überall
+  ausreicht.
+
+### Behoben — Katalogsuche fand nicht alle passenden Karten
+- Live-reported: die Suche nach "charizard" allein fand "Charizard ex" aus
+  dem 151-Set nicht, erst "charizard ex" (also der vollständige Name)
+  brachte den Treffer. Ursache: pokemontcg.io liefert für "charizard" 108
+  Treffer über alle je gedruckten Sets, aber die App rief nur die ersten 25
+  ab -- in einer offenbar nicht nach Relevanz sortierten Reihenfolge, in
+  der neuere Drucke oft gar nicht auftauchen. Abfragegröße auf 250
+  (pokemontcg.io-Maximum) erhöht, Anzeige-Obergrenze entsprechend von 25
+  auf 100 mit angehoben, damit die höhere Trefferzahl nicht eine Ebene
+  höher wieder verschluckt wird.
+
 ## [1.0.0-beta.1] — 2026-07-11
 
 Erste Beta: die App ist feature-komplett für ihr Kernversprechen (Karten,
@@ -28,6 +149,55 @@ Blocker für diese Beta.
   übrigen Felder. Ein erster Versuch (360px) war selbst wieder zu groß und
   überlappte die Formularfelder darunter -- auf 260px korrigiert (derselbe
   Wert, den die alte Min-Höhe schon sicher nutzte).
+
+### Behoben — Cloudflare-Sicherheitsprüfung wurde fälschlich als geladene Seite akzeptiert
+- Live-reported: eine Preisabfrage öffnete Chrome, das Fenster schloss sich
+  aber sofort wieder, ohne einen Preis zu finden. Ursache: Cardmarkets
+  eigene Cloudflare-"Checking your Browser…"-Zwischenseite hat allein durch
+  ihre eigene Oberfläche (Tab-Leiste, Cloudflare-Branding, "Ray ID" usw.)
+  bereits genug Textzeilen, um von der bestehenden "ist die Seite fertig
+  geladen?"-Prüfung fälschlich als normale, vollständig geladene Seite mit
+  schlicht keinen Angeboten durchzugehen -- der Tab wurde dann sofort
+  wieder geschlossen, lange bevor Cloudflares eigene automatische Prüfung
+  (üblicherweise ein paar Sekunden) fertig war und zur echten Produktseite
+  hätte weiterleiten können. Jetzt wird diese Zwischenseite gezielt erkannt
+  und es wird mehrfach länger gewartet, bis sie von selbst verschwindet --
+  rein passives Abwarten, es wird nichts an der Prüfung selbst umgangen
+  oder automatisch bestätigt.
+
+### Neu — Sealed-Produkte: Preis manuell bearbeiten + automatischer Abruf beim Hinzufügen
+- Zwei Funktionen, die es bei Karten schon gab, fehlten bislang bei Sealed-
+  Produkten: Kontextmenü-Eintrag "Preis manuell bearbeiten" (z. B. wenn ein
+  Verkäufer sein Angebot falsch beschriftet hat) und der automatische
+  Preisabruf direkt nach dem Hinzufügen -- beides jetzt nachgezogen, exakt
+  nach demselben Muster wie bei Karten.
+
+### Behoben — "Fix Cardmarket Link" speicherte den Link nicht, obwohl bestätigt
+- Live-reported: nach "Fix Cardmarket link" → Suchtreffer auswählen →
+  "Diesen Link speichern?" mit Ja bestätigen passierte sichtbar nichts --
+  kein Fehler, keine Änderung. Ursache: ein klassischer Qt-Nebenläufigkeits-
+  Bug. Die Bestätigungsabfrage (`QMessageBox.question`) öffnet währenddessen
+  eine eigene, verschachtelte Event-Loop -- währenddessen wurde das schon
+  wartende, direkt danach ausgelöste "fertig"-Signal des Hintergrund-Workers
+  verarbeitet, das die gemerkte Karten-ID vorsorglich auf `None` zurücksetzt.
+  Klickte man danach auf "Ja", lief der Speichervorgang bereits mit einer
+  gelöschten ID, scheiterte an "Karte nicht gefunden" -- und das landete nur
+  in der Statusleiste, nie im Log. Fix: Karten-ID/-Name werden jetzt vor der
+  Abfrage in lokale Variablen kopiert, statt sich auf den Zustand danach zu
+  verlassen.
+
+### Neu — Preis wird nach "Fix Cardmarket Link" ebenfalls automatisch abgerufen
+- Analog zum automatischen Preisabruf beim Hinzufügen: ist der Link einmal
+  erfolgreich gespeichert, wird direkt danach automatisch der Preis dafür
+  abgerufen -- kein separater Klick auf "Preis abrufen" mehr nötig.
+
+### Neu — Preis wird direkt beim Hinzufügen einer Karte automatisch abgerufen
+- Tester-Feedback: eine Karte hinzuzufügen und ihren Preis abzurufen waren
+  bisher zwei getrennte Schritte -- der zweite (manuell "Preis von
+  Cardmarket abrufen" klicken) leicht zu vergessen. Direkt nach dem
+  Hinzufügen (per Katalogsuche oder manuellem Cardmarket-Link) startet
+  jetzt automatisch derselbe Preisabruf, den auch der Button im
+  Detailpanel auslöst -- kein zusätzlicher Klick mehr nötig.
 
 ### Behoben — Verwaiste temporäre Foto-Dateien sammelten sich an
 - Beim manuellen Hinzufügen einer Karte oder eines Sealed-Produkts per

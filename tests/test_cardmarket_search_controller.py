@@ -151,6 +151,61 @@ def test_full_flow_persists_the_resolved_url_and_refreshes(
     assert card.manual_cardmarket_url == _URL
 
 
+def test_confirming_the_save_still_works_if_cleanup_races_in_during_the_question(
+    monkeypatch, controller: CardmarketSearchController, card_service: CardService, card_id: int
+) -> None:
+    # Live-reported bug: confirming the "save this link?" dialog silently
+    # did nothing. Root cause: QMessageBox.question() runs its own nested
+    # Qt event loop while it waits for the user -- the worker's own
+    # `finished` signal (queued right behind `succeeded`, since the thread
+    # emits it immediately after run() returns) got processed during that
+    # wait, resetting self._card_id/self._card_name to None via
+    # _cleanup_resolve *before* the user ever clicked Yes. Simulated here by
+    # having the (monkeypatched) confirmation itself trigger that same
+    # cleanup as a side effect before returning Yes -- exactly what the real
+    # nested event loop does -- to prove the save survives it.
+    monkeypatch.setattr(
+        "app.ui.workers.cardmarket_search_worker.search_cardmarket",
+        lambda name: [_RESULT],
+    )
+    monkeypatch.setattr(
+        "app.ui.workers.cardmarket_search_resolve_worker.resolve_cardmarket_search_result",
+        lambda name, chosen: _URL,
+    )
+    monkeypatch.setattr(CardmarketSearchResultsDialog, "exec", _auto_confirm(_RESULT))
+
+    def _question_with_interleaved_cleanup(*_args, **_kwargs):
+        controller._cleanup_resolve()
+        return QMessageBox.StandardButton.Yes
+
+    monkeypatch.setattr(QMessageBox, "question", _question_with_interleaved_cleanup)
+
+    controller.start(card_id)
+
+    card = card_service.get_card(card_id)
+    assert card.manual_cardmarket_url == _URL
+
+
+def test_link_saved_is_emitted_for_immediate_price_lookup(
+    monkeypatch, controller: CardmarketSearchController, card_id: int
+) -> None:
+    monkeypatch.setattr(
+        "app.ui.workers.cardmarket_search_worker.search_cardmarket",
+        lambda name: [_RESULT],
+    )
+    monkeypatch.setattr(
+        "app.ui.workers.cardmarket_search_resolve_worker.resolve_cardmarket_search_result",
+        lambda name, chosen: _URL,
+    )
+    monkeypatch.setattr(CardmarketSearchResultsDialog, "exec", _auto_confirm(_RESULT))
+    received: list[int] = []
+    controller.link_saved.connect(received.append)
+
+    controller.start(card_id)
+
+    assert received == [card_id]
+
+
 def test_declining_the_save_confirmation_does_not_persist_the_url(
     monkeypatch, controller: CardmarketSearchController, card_service: CardService, card_id: int
 ) -> None:

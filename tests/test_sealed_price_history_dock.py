@@ -53,7 +53,7 @@ def test_fewer_than_two_records_shows_placeholder_not_chart(dock: SealedPriceHis
 
     assert dock._chart_view.isHidden()
     assert not dock._placeholder.isHidden()
-    assert "10.00" in dock._placeholder.text()
+    assert "10,00" in dock._placeholder.text()
 
 
 def test_two_or_more_records_shows_chart(dock: SealedPriceHistoryDock) -> None:
@@ -77,7 +77,7 @@ def test_percent_change_positive_is_labelled_and_styled(dock: SealedPriceHistory
     dock.show_history(_product(), records)
 
     assert not dock._percent_label.isHidden()
-    assert dock._percent_label.text().startswith("+50.0")
+    assert dock._percent_label.text().startswith("+50,0")
     assert dock._percent_label.objectName() == "PercentPositive"
 
 
@@ -89,7 +89,7 @@ def test_percent_change_negative_is_labelled_and_styled(dock: SealedPriceHistory
 
     dock.show_history(_product(), records)
 
-    assert dock._percent_label.text().startswith("−25.0")
+    assert dock._percent_label.text().startswith("−25,0")
     assert dock._percent_label.objectName() == "PercentNegative"
 
 
@@ -99,7 +99,7 @@ def test_history_list_shows_most_recent_first_capped_at_ten(dock: SealedPriceHis
     dock.show_history(_product(), records)
 
     assert dock._history_list.count() == 10
-    assert "11.00" in dock._history_list.item(0).text()
+    assert "11,00" in dock._history_list.item(0).text()
 
 
 def test_show_empty_resets_everything(dock: SealedPriceHistoryDock) -> None:

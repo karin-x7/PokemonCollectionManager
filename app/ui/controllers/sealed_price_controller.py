@@ -24,7 +24,10 @@ from app.models.sealed_product import SealedProduct
 from app.ui.controllers.sealed_product_controller import SealedProductController
 from app.ui.controllers.statistics_controller import StatisticsController
 from app.ui.widgets.sealed_product_detail_panel import SealedProductDetailPanel
+from app.ui.widgets.sealed_product_list_panel import SealedProductListPanel
+from app.ui.workers.open_sealed_cardmarket_link_worker import OpenSealedCardmarketLinkWorker
 from app.ui.workers.sealed_price_lookup_worker import OpenSealedPriceService, SealedPriceLookupWorker
+from app.utils.formatting import format_decimal
 
 logger = get_logger(__name__)
 
@@ -39,6 +42,7 @@ class SealedPriceController(QObject):
         product_controller: SealedProductController,
         detail_panel: SealedProductDetailPanel | None = None,
         statistics_controller: StatisticsController | None = None,
+        list_panel: SealedProductListPanel | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent or main_window)
@@ -50,14 +54,17 @@ class SealedPriceController(QObject):
         self._worker: SealedPriceLookupWorker | None = None
         self._bulk_queue: list[int] = []
         self._bulk_total = 0
+        self._link_worker: OpenSealedCardmarketLinkWorker | None = None
 
         if detail_panel is not None:
             detail_panel.price_lookup_requested.connect(self.start_lookup)
+        if list_panel is not None:
+            list_panel.open_cardmarket_link_requested.connect(self.open_cardmarket_link)
 
     def start_lookup(self, product_id: int) -> None:
         logger.info("Sealed price lookup requested for product id=%s", product_id)
-        if self._worker is not None:
-            logger.info("Sealed price lookup already running -- ignoring click.")
+        if self._worker is not None or self._link_worker is not None:
+            logger.info("A Cardmarket browser operation is already running -- ignoring click.")
             return
         self._start(product_id, tr("Preis wird von Cardmarket abgerufen…"))
 
@@ -118,7 +125,7 @@ class SealedPriceController(QObject):
         message = (
             tr("Preis für „{name}“ aktualisiert: {price} {currency}").format(
                 name=product.name,
-                price=f"{product.current_price:.2f}",
+                price=format_decimal(product.current_price),
                 currency=product.price_currency,
             )
             if product.current_price is not None
@@ -141,3 +148,42 @@ class SealedPriceController(QObject):
         self._worker = None
         if self._bulk_total:
             self._run_next_in_queue()
+
+    def open_cardmarket_link(self, product_id: int) -> None:
+        """Open the product's Cardmarket page in Chrome, left open for the
+
+        user to browse -- the "Cardmarket-Link öffnen" context-menu action.
+        Mirrors ``PriceController.open_cardmarket_link`` exactly.
+        """
+        logger.info("Open Cardmarket link requested for sealed product id=%s", product_id)
+        if self._worker is not None or self._link_worker is not None:
+            logger.info("A Cardmarket browser operation is already running -- ignoring click.")
+            self._main_window.statusBar().showMessage(
+                tr("Ein anderer Cardmarket-Vorgang läuft gerade -- bitte kurz warten."), 4000
+            )
+            return
+        self._link_worker = OpenSealedCardmarketLinkWorker(
+            self._open_service, product_id, parent=self
+        )
+        self._link_worker.succeeded.connect(self._on_link_opened)
+        self._link_worker.failed.connect(self._on_link_failed)
+        self._link_worker.finished.connect(self._on_link_cleanup)
+        self._link_worker.start()
+
+    def _on_link_opened(self, url: object) -> None:
+        if url is None:
+            self._main_window.statusBar().showMessage(
+                tr(
+                    "Keine Cardmarket-Zuordnung für dieses Produkt bekannt -- Link kann "
+                    "nicht geöffnet werden."
+                ),
+                5000,
+            )
+        else:
+            self._main_window.statusBar().showMessage(tr("Cardmarket-Seite geöffnet."), 4000)
+
+    def _on_link_failed(self, message: str) -> None:
+        self._main_window.statusBar().showMessage(message, 5000)
+
+    def _on_link_cleanup(self) -> None:
+        self._link_worker = None

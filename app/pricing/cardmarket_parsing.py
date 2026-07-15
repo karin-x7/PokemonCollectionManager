@@ -118,6 +118,15 @@ _SEALED_CARDMARKET_LANGUAGE_IDS: dict[Language, int] = _CARDMARKET_LANGUAGE_IDS
 #: filtered by language" vs. "is cross-language price estimation safe for
 #: this language" -- can't accidentally get tangled again.
 _MARKET_DIVERGENT_LANGUAGES = frozenset({Language.JAPANESE, Language.KOREAN, Language.CHINESE})
+#: Cardmarket's own numeric id for Germany in its ``sellerCountry`` filter --
+#: live-confirmed by the user (``?sellerCountry=7`` on a real product page
+#: correctly narrowed to German sellers only). Not contiguous with anything
+#: else on this page (in particular, *not* 1, despite Germany being
+#: Cardmarket's home market) -- like the language ids above, not derivable
+#: from the filter UI's own (alphabetical) display order, so no other
+#: country id is assumed here without the same kind of live confirmation.
+SELLER_COUNTRY_GERMANY_ID = 7
+
 #: ``minCondition`` matches this condition *or better*; ids run Mint(1)..Poor(7),
 #: identical order to our own :class:`Condition` enum.
 _CARDMARKET_CONDITION_IDS: dict[Condition, int] = {
@@ -295,6 +304,7 @@ def build_filtered_url(
     first_edition: bool | None = None,
     altered: bool | None = None,
     reverse_holo: bool | None = None,
+    seller_country: int | None = None,
 ) -> str:
     """Append Cardmarket's own query filters for language/condition/extras.
 
@@ -315,6 +325,10 @@ def build_filtered_url(
     than left ``None``: a real card either is or isn't signed, so leaving
     this unset would silently match against a page mixing signed and
     unsigned offers, breaking an "exact" match's accuracy.
+
+    ``seller_country`` maps to Cardmarket's own ``sellerCountry`` filter (see
+    :data:`SELLER_COUNTRY_GERMANY_ID`) -- ``None`` (the default) omits it
+    entirely, i.e. no seller-location narrowing at all.
     """
     params: dict[str, int | str] = {}
     if language is not None and language in _CARDMARKET_LANGUAGE_IDS:
@@ -329,6 +343,8 @@ def build_filtered_url(
         params["isAltered"] = "Y" if altered else "N"
     if reverse_holo is not None:
         params["isReverseHolo"] = "Y" if reverse_holo else "N"
+    if seller_country is not None:
+        params["sellerCountry"] = seller_country
     if not params:
         return base_url
     separator = "&" if "?" in base_url else "?"
@@ -345,28 +361,36 @@ def sealed_supports_language_filter(language: Language) -> bool:
     return language in _SEALED_CARDMARKET_LANGUAGE_IDS
 
 
-def build_sealed_filtered_url(base_url: str, language: Language) -> str:
-    """Set Cardmarket's own ``?language=N`` filter for a sealed product.
+def build_sealed_filtered_url(
+    base_url: str, language: Language, *, seller_country: int | None = None
+) -> str:
+    """Set Cardmarket's own ``?language=N``/``?sellerCountry=N`` filters for a sealed product.
 
     Sealed products have no condition ladder or extras (signed, 1st edition,
     reverse holo, ...) to filter by at all, so unlike :func:`build_filtered_url`
-    this only ever narrows by language. A ``language`` with no known id (see
-    :func:`sealed_supports_language_filter`) is silently ignored, same
-    convention as :func:`build_filtered_url`.
+    this only ever narrows by language and seller country. A ``language`` with
+    no known id (see :func:`sealed_supports_language_filter`) is silently
+    ignored, same convention as :func:`build_filtered_url`; ``seller_country``
+    left ``None`` (the default) omits that filter entirely.
 
-    Idempotent: any pre-existing ``language`` query parameter is replaced
-    rather than duplicated. This matters because, unlike single cards, a
-    sealed product's stored ``cardmarket_url`` may already carry this same
-    filter from when it was added/edited -- price lookups re-derive the
-    filter fresh from whatever URL is stored (see ``SealedPriceService``),
-    so calling this twice on an already-filtered URL must not stack a
-    second ``&language=`` onto it.
+    Idempotent: any pre-existing ``language``/``sellerCountry`` query
+    parameter is replaced rather than duplicated. This matters because,
+    unlike single cards, a sealed product's stored ``cardmarket_url`` may
+    already carry this same filter from when it was added/edited -- price
+    lookups re-derive the filter fresh from whatever URL is stored (see
+    ``SealedPriceService``), so calling this twice on an already-filtered URL
+    must not stack a second ``&language=``/``&sellerCountry=`` onto it.
     """
-    if not sealed_supports_language_filter(language):
-        return base_url
     parts = urlsplit(base_url)
-    query = [(key, value) for key, value in parse_qsl(parts.query) if key != "language"]
-    query.append(("language", str(_SEALED_CARDMARKET_LANGUAGE_IDS[language])))
+    query = [
+        (key, value)
+        for key, value in parse_qsl(parts.query)
+        if key not in ("language", "sellerCountry")
+    ]
+    if sealed_supports_language_filter(language):
+        query.append(("language", str(_SEALED_CARDMARKET_LANGUAGE_IDS[language])))
+    if seller_country is not None:
+        query.append(("sellerCountry", str(seller_country)))
     return urlunsplit(parts._replace(query=urlencode(query)))
 
 
@@ -497,6 +521,27 @@ def _has_cookie_banner(lines: list[str]) -> bool:
     so this is treated the same as "too few lines" below: a signal to wait
     and re-read, not a final result."""
     return any("cardmarket uses cookies" in line.casefold() for line in lines)
+
+
+def _has_bot_check(lines: list[str]) -> bool:
+    """Whether ``lines`` shows Cardmarket's own Cloudflare bot-check
+
+    interstitial ("Checking your Browser…") instead of the real page.
+
+    Live-reported: this interstitial's own chrome (tab strip, "Ray ID",
+    Cloudflare branding, etc.) easily clears the same line-count threshold
+    ``_has_cookie_banner`` and the "too few lines" check use for "still
+    loading" -- so it was previously accepted as a normal, fully-rendered
+    page with zero offers on it, and the tab closed immediately afterwards,
+    long before Cloudflare's own automatic JS verification (typically a few
+    seconds) had a chance to finish and redirect to the actual product
+    page. Matched on "Cloudflare"/"Ray ID" specifically since those are
+    Cloudflare's own branding, not translated regardless of the page's UI
+    language -- unlike the surrounding "Checking your Browser…" text, which
+    is.
+    """
+    joined = " ".join(lines).casefold()
+    return "cloudflare" in joined and "ray id" in joined
 
 
 def _find_breadcrumb_set_name(lines: list[str], name: str) -> str:

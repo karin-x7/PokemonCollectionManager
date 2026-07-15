@@ -16,6 +16,7 @@ from app.i18n import tr
 from app.models.sealed_product import SealedProduct
 from app.ui.theme import apply_elevation
 from app.ui.widgets.sealed_artwork_view import SealedArtworkView
+from app.utils.formatting import format_price
 from app.utils.time import format_display_datetime
 
 _FIELDS = [
@@ -112,7 +113,7 @@ class SealedProductDetailPanel(QWidget):
         self._history_button.setEnabled(True)
         self._artwork.show_photo(product.photo_path)
         price = (
-            f"{product.current_price:.2f} {product.price_currency}"
+            format_price(product.current_price, product.price_currency)
             if product.current_price is not None
             else "—"
         )

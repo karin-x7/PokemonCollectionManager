@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QDialog, QMessageBox
 
 from app.catalog.models import CatalogCard
@@ -35,6 +35,14 @@ logger = get_logger(__name__)
 
 class CardController(QObject):
     """Wires a :class:`CardListPanel`/:class:`CardDetailPanel` to a :class:`CardService`."""
+
+    #: Emitted with the new card's id right after it's successfully added
+    #: (catalogue match or manual link) -- :class:`~app.ui.main_window.
+    #: MainWindow` connects this straight to :meth:`~app.ui.controllers.
+    #: price_controller.PriceController.start_lookup` so adding a card and
+    #: fetching its price happen in one step, not two (live-reported: a
+    #: separate manual "Preis abrufen" click afterwards was easy to forget).
+    card_added = Signal(int)
 
     def __init__(
         self,
@@ -130,6 +138,7 @@ class CardController(QObject):
         self.refresh()
         self._panel.select_card(card.id)
         self._sync_detail_panel()
+        self.card_added.emit(card.id)
 
     def prompt_add_manual(self, info: ProductInfo, url: str) -> None:
         """Start the add-card flow for a manually-entered Cardmarket link."""
@@ -162,6 +171,7 @@ class CardController(QObject):
         self.refresh()
         self._panel.select_card(card.id)
         self._sync_detail_panel()
+        self.card_added.emit(card.id)
 
     def _confirm_duplicate(self, name: str, duplicates: list[Card]) -> bool:
         """Ask the user to confirm adding an apparent duplicate.

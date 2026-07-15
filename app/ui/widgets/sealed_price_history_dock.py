@@ -28,6 +28,7 @@ from app.i18n import tr
 from app.models.sealed_price import SealedPriceRecord
 from app.models.sealed_product import SealedProduct
 from app.ui.theme import PALETTE
+from app.utils.formatting import format_decimal, format_price
 
 _MAX_HISTORY_ROWS = 10
 
@@ -115,7 +116,7 @@ class SealedPriceHistoryDock(QDockWidget):
             self._percent_label.hide()
             self._placeholder.setText(
                 tr("Nur ein Preis bisher: {price} {currency}").format(
-                    price=f"{records[0].price:.2f}", currency=records[0].currency
+                    price=format_decimal(records[0].price), currency=records[0].currency
                 )
                 if records
                 else tr("Noch kein Preisverlauf vorhanden.")
@@ -188,7 +189,7 @@ class SealedPriceHistoryDock(QDockWidget):
             QToolTip.hideText()
             return
         when = QDateTime.fromMSecsSinceEpoch(int(point.x())).toString("dd.MM.yyyy")
-        QToolTip.showText(QCursor.pos(), f"{when}\n{point.y():.2f} EUR")
+        QToolTip.showText(QCursor.pos(), f"{when}\n{format_decimal(point.y())} EUR")
 
     def _render_percent_change(self, records: list[SealedPriceRecord]) -> None:
         previous, latest = records[-2].price, records[-1].price
@@ -199,7 +200,7 @@ class SealedPriceHistoryDock(QDockWidget):
         sign = "+" if change >= 0 else "−"
         self._percent_label.setText(
             tr("{sign}{value} % ggü. letzter Aktualisierung").format(
-                sign=sign, value=f"{abs(change):.1f}"
+                sign=sign, value=format_decimal(abs(change), 1)
             )
         )
         self._percent_label.setObjectName("PercentPositive" if change >= 0 else "PercentNegative")
@@ -212,7 +213,7 @@ class SealedPriceHistoryDock(QDockWidget):
         for record in reversed(records[-_MAX_HISTORY_ROWS:]):
             timestamp = QDateTime.fromString(record.recorded_at, Qt.DateFormat.ISODate)
             when = timestamp.toString("dd.MM.yy   HH:mm")
-            price_text = f"{record.price:.2f} {record.currency}"
+            price_text = format_price(record.price, record.currency)
             # The rationale (e.g. "estimated from German, requested was
             # Japanese") is appended when it says more than the quality
             # label alone already does -- see price_history_dock.py's

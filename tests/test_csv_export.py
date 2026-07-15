@@ -37,7 +37,7 @@ def test_writes_header_and_row(tmp_path) -> None:
     assert rows[0] == list(COLUMNS)
     assert rows[1] == [
         "Binder", "Xatu", "Skyridge", "H32", "German", "Near Mint", "Reverse Holo",
-        "2", "13.90", "EUR", "Exakter Treffer", "2026-07-04T12:00:00Z", "PSA 9",
+        "2", "13,90", "EUR", "Exakter Treffer", "2026-07-04T12:00:00Z", "PSA 9",
         "https://www.cardmarket.com/en/Pokemon/Products/Singles/Skyridge/Xatu",
     ]
 
@@ -91,6 +91,6 @@ def test_write_sealed_writes_header_and_row(tmp_path) -> None:
     assert rows[0] == list(SEALED_COLUMNS)
     assert rows[1] == [
         "Base Set Booster Box", "Booster Box", "German", "1",
-        "5000.00", "EUR", "Exakter Treffer", "2026-07-05T00:00:00Z", "",
+        "5.000,00", "EUR", "Exakter Treffer", "2026-07-05T00:00:00Z", "",
         "https://www.cardmarket.com/en/Pokemon/Products/Booster-Boxes/Base-Set-Booster-Box",
     ]

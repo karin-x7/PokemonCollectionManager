@@ -8,9 +8,12 @@ import pytest
 from app.database.connection import Database
 from app.database.repositories.sealed_price_repository import SealedPriceRepository
 from app.database.repositories.sealed_product_repository import SealedProductRepository
+from app.database.repositories.settings_repository import SettingsRepository
 from app.models.enums import Language, PriceQuality
 from app.pricing.browser_price_reader import BrowserPriceReaderError
+from app.pricing.cardmarket_parsing import SELLER_COUNTRY_GERMANY_ID
 from app.pricing.models import SealedOffer
+from app.pricing.seller_location import set_germany_only_enabled
 from app.services.exceptions import SealedProductNotFoundError
 from app.services.sealed_price_service import SealedPriceService
 
@@ -44,11 +47,17 @@ def _product(temp_db: Database, **overrides):
     return SealedProductRepository(temp_db).create(SealedProduct(**base))
 
 
-def _service(temp_db: Database, offer_reader) -> SealedPriceService:
+def _service(
+    temp_db: Database, offer_reader, settings_repository=None, request_delay: float = 0
+) -> SealedPriceService:
     return SealedPriceService(
         SealedProductRepository(temp_db),
         SealedPriceRepository(temp_db),
         offer_reader=offer_reader,
+        settings_repository=settings_repository,
+        # No real delay by default -- these tests must run fast; the real,
+        # deliberately noticeable pause is exercised/verified separately.
+        request_delay=request_delay,
     )
 
 
@@ -245,3 +254,152 @@ def test_no_price_found_does_not_append_a_history_record(temp_db: Database) -> N
     service.update_price_for_product(product.id)
 
     assert SealedPriceRepository(temp_db).list_for_product(product.id) == []
+
+
+# --- Seller-location preference (Germany-only) ----------------------------- #
+
+
+def _germany_only_settings(temp_db: Database) -> SettingsRepository:
+    settings = SettingsRepository(temp_db)
+    set_germany_only_enabled(settings, True)
+    return settings
+
+
+def test_seller_location_off_by_default_builds_no_country_filter(temp_db: Database) -> None:
+    product = _product(temp_db, language=Language.GERMAN)
+    reader = FakeOfferReader([SealedOffer(seller="a", language=Language.GERMAN, price=120.0)])
+    service = _service(temp_db, reader)
+
+    service.update_price_for_product(product.id)
+
+    assert "sellerCountry" not in reader.calls[0][0]
+
+
+def test_seller_location_exact_match_in_preferred_country_returns_immediately(
+    temp_db: Database,
+) -> None:
+    product = _product(temp_db, language=Language.GERMAN)
+    reader = FakeOfferReader([SealedOffer(seller="a", language=Language.GERMAN, price=120.0)])
+    service = _service(temp_db, reader, settings_repository=_germany_only_settings(temp_db))
+
+    updated = service.update_price_for_product(product.id)
+
+    assert updated.current_price == 120.0
+    assert updated.price_quality is PriceQuality.EXACT
+    assert len(reader.calls) == 1
+    assert f"sellerCountry={SELLER_COUNTRY_GERMANY_ID}" in reader.calls[0][0]
+
+
+def test_seller_location_falls_back_to_exact_match_across_all_countries(
+    temp_db: Database,
+) -> None:
+    product = _product(temp_db, language=Language.GERMAN)
+    offers = [SealedOffer(seller="a", language=Language.GERMAN, price=99.0)]
+    reader = FakeOfferReader([], offers)
+    service = _service(temp_db, reader, settings_repository=_germany_only_settings(temp_db))
+
+    updated = service.update_price_for_product(product.id)
+
+    assert updated.current_price == 99.0
+    assert updated.price_quality is PriceQuality.EXACT
+    assert len(reader.calls) == 2
+    assert f"sellerCountry={SELLER_COUNTRY_GERMANY_ID}" in reader.calls[0][0]
+    assert "sellerCountry" not in reader.calls[1][0]
+
+
+def test_seller_location_falls_back_to_the_buffer_ladder_unfiltered_by_country(
+    temp_db: Database,
+) -> None:
+    # Deliberately *not* a country-filtered buffer phase (an earlier version
+    # had one) -- see _determine_price's own docstring: needlessly more
+    # Cardmarket tabs for one lookup, live-reported to have triggered a
+    # Cloudflare block.
+    product = _product(temp_db, language=Language.GERMAN)
+    buffer_offer = SealedOffer(seller="a", language=Language.ENGLISH, price=80.0)
+    reader = FakeOfferReader(
+        [],  # phase 1: exact (same language), preferred country
+        [],  # phase 2: exact (same language), all countries
+        [buffer_offer],  # phase 3: buffer (any language), unfiltered by country
+    )
+    service = _service(temp_db, reader, settings_repository=_germany_only_settings(temp_db))
+
+    updated = service.update_price_for_product(product.id)
+
+    assert updated.current_price == 80.0
+    assert updated.price_quality is PriceQuality.ESTIMATED_FROM_LANGUAGE
+    assert len(reader.calls) == 3
+    assert f"sellerCountry={SELLER_COUNTRY_GERMANY_ID}" in reader.calls[0][0]
+    assert "sellerCountry" not in reader.calls[1][0]
+    assert "sellerCountry" not in reader.calls[2][0]
+
+
+def test_seller_location_note_says_germany_when_the_exact_country_match_wins(
+    temp_db: Database,
+) -> None:
+    product = _product(temp_db, language=Language.GERMAN)
+    reader = FakeOfferReader([SealedOffer(seller="a", language=Language.GERMAN, price=120.0)])
+    service = _service(temp_db, reader, settings_repository=_germany_only_settings(temp_db))
+
+    updated = service.update_price_for_product(product.id)
+
+    assert updated.price_rationale.endswith("Seller location: Germany.")
+
+
+def test_seller_location_note_says_all_countries_when_falling_back(temp_db: Database) -> None:
+    product = _product(temp_db, language=Language.GERMAN)
+    offers = [SealedOffer(seller="a", language=Language.GERMAN, price=99.0)]
+    reader = FakeOfferReader([], offers)
+    service = _service(temp_db, reader, settings_repository=_germany_only_settings(temp_db))
+
+    updated = service.update_price_for_product(product.id)
+
+    assert updated.price_rationale.endswith("Seller location: all countries.")
+
+
+def test_seller_location_note_absent_when_the_setting_is_off(temp_db: Database) -> None:
+    product = _product(temp_db, language=Language.GERMAN)
+    reader = FakeOfferReader([SealedOffer(seller="a", language=Language.GERMAN, price=120.0)])
+    service = _service(temp_db, reader)
+
+    updated = service.update_price_for_product(product.id)
+
+    assert "Seller location:" not in updated.price_rationale
+
+
+def test_seller_location_no_price_anywhere_still_yields_no_price(temp_db: Database) -> None:
+    product = _product(temp_db, language=Language.GERMAN)
+    reader = FakeOfferReader([], [], [])
+    service = _service(temp_db, reader, settings_repository=_germany_only_settings(temp_db))
+
+    updated = service.update_price_for_product(product.id)
+
+    assert updated.current_price is None
+    assert updated.price_quality is PriceQuality.NO_PRICE
+    assert len(reader.calls) == 3
+
+
+def test_seller_location_a_raised_zero_offers_error_still_falls_through_to_the_next_phase(
+    temp_db: Database,
+) -> None:
+    # Live-reported regression: the *real* offer reader
+    # (read_sealed_offers_for_card) raises BrowserPriceReaderError, not an
+    # empty list, when a filtered page genuinely has zero matching offers
+    # (see its own docstring) -- Cardmarket itself said "Due to your filter
+    # settings, no available offers are shown." for a sellerCountry=7 page
+    # that loaded perfectly fine. Before this fix, that raise propagated
+    # straight out of _check_same_language and aborted the whole lookup
+    # after a single read instead of trying the next, broader phase.
+    product = _product(temp_db, language=Language.GERMAN)
+    offers = [SealedOffer(seller="a", language=Language.GERMAN, price=333.74)]
+    reader = FakeOfferReader(
+        BrowserPriceReaderError("Keine Angebote auf der Cardmarket-Seite erkannt."), offers
+    )
+    service = _service(temp_db, reader, settings_repository=_germany_only_settings(temp_db))
+
+    updated = service.update_price_for_product(product.id)
+
+    assert updated.current_price == 333.74
+    assert updated.price_quality is PriceQuality.EXACT
+    assert len(reader.calls) == 2
+    assert f"sellerCountry={SELLER_COUNTRY_GERMANY_ID}" in reader.calls[0][0]
+    assert "sellerCountry" not in reader.calls[1][0]

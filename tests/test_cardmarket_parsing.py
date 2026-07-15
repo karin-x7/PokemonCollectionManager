@@ -18,12 +18,14 @@ import requests
 from app.models.enums import Condition, Language
 from app.pricing.cardmarket_parsing import (
     _find_breadcrumb_set_name,
+    _has_bot_check,
     _has_cookie_banner,
     _parse_offer_lines,
     _parse_product_info,
     _parse_search_result_line,
     _parse_sealed_offer_lines,
     _parse_sealed_product_info,
+    SELLER_COUNTRY_GERMANY_ID,
     build_filtered_url,
     build_sealed_filtered_url,
     find_alternate_version_url,
@@ -211,6 +213,31 @@ def test_build_filtered_url_appends_to_an_already_queried_base_url() -> None:
     assert url == "https://cardmarket.com/x?utm_source=pokemontcgio&language=3"
 
 
+def test_build_filtered_url_seller_country_only() -> None:
+    url = build_filtered_url("https://cardmarket.com/x", seller_country=SELLER_COUNTRY_GERMANY_ID)
+    assert url == f"https://cardmarket.com/x?sellerCountry={SELLER_COUNTRY_GERMANY_ID}"
+
+
+def test_build_filtered_url_seller_country_none_omits_the_filter() -> None:
+    url = build_filtered_url(
+        "https://cardmarket.com/x", language=Language.GERMAN, seller_country=None
+    )
+    assert "sellerCountry" not in url
+
+
+def test_build_filtered_url_seller_country_combined_with_language_and_condition() -> None:
+    url = build_filtered_url(
+        "https://cardmarket.com/x",
+        language=Language.GERMAN,
+        min_condition=Condition.GOOD,
+        seller_country=SELLER_COUNTRY_GERMANY_ID,
+    )
+    assert url == (
+        f"https://cardmarket.com/x?language=3&minCondition=4"
+        f"&sellerCountry={SELLER_COUNTRY_GERMANY_ID}"
+    )
+
+
 # --- sealed_supports_language_filter / build_sealed_filtered_url ----------- #
 # Unlike single cards, a sealed product's Cardmarket page genuinely does
 # expose Japanese/Korean/Traditional Chinese as a language filter on the
@@ -251,6 +278,25 @@ def test_build_sealed_filtered_url_is_idempotent_replaces_not_stacks() -> None:
     assert (
         build_sealed_filtered_url(already_filtered, Language.JAPANESE)
         == "https://cardmarket.com/x?language=7"
+    )
+
+
+def test_build_sealed_filtered_url_seller_country() -> None:
+    url = build_sealed_filtered_url(
+        "https://cardmarket.com/x", Language.GERMAN, seller_country=SELLER_COUNTRY_GERMANY_ID
+    )
+    assert url == f"https://cardmarket.com/x?language=3&sellerCountry={SELLER_COUNTRY_GERMANY_ID}"
+
+
+def test_build_sealed_filtered_url_seller_country_is_idempotent_replaces_not_stacks() -> None:
+    already_filtered = (
+        f"https://cardmarket.com/x?language=3&sellerCountry={SELLER_COUNTRY_GERMANY_ID}"
+    )
+    # Dropping the seller-location preference (seller_country=None) must
+    # remove the existing &sellerCountry=, not just leave it stale.
+    assert (
+        build_sealed_filtered_url(already_filtered, Language.GERMAN, seller_country=None)
+        == "https://cardmarket.com/x?language=3"
     )
 
 
@@ -693,6 +739,39 @@ def test_has_cookie_banner_false_for_a_normal_page() -> None:
     lines = ["Available items", "78", "From", "13,90 €"]
 
     assert _has_cookie_banner(lines) is False
+
+
+# --- _has_bot_check ---------------------------------------------------------- #
+# Live-reported: Cardmarket's own Cloudflare "Checking your Browser…"
+# interstitial has enough of its own chrome/branding text to clear
+# _MIN_EXPECTED_LINES on its own, so it was previously accepted as a normal,
+# fully-rendered page with zero offers -- see _has_bot_check's own docstring.
+
+
+def test_has_bot_check_detects_the_real_interstitial_text() -> None:
+    lines = [
+        "Nur einen Moment… - Google Chrome",
+        "Sicherheitsüberprüfung wird durchgeführt",
+        "Checking your Browser…",
+        "Cloudflare",
+        "Ray ID: ",
+        "a1a81f3b9f654860",
+    ]
+
+    assert _has_bot_check(lines) is True
+
+
+def test_has_bot_check_false_for_a_normal_page() -> None:
+    lines = ["Available items", "78", "From", "13,90 €"]
+
+    assert _has_bot_check(lines) is False
+
+
+def test_has_bot_check_false_when_only_one_of_the_two_markers_present() -> None:
+    # Neither "Cloudflare" nor "Ray ID" alone is distinctive enough on its
+    # own (e.g. a page merely mentioning Cloudflare in unrelated content).
+    assert _has_bot_check(["Cloudflare is a company"]) is False
+    assert _has_bot_check(["Ray ID number unrelated"]) is False
 
 
 # --- resolve_cardmarket_url ------------------------------------------------ #

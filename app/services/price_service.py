@@ -49,6 +49,7 @@ from app.catalog.tcgdex_designation_lookup import (
 )
 from app.database.repositories.card_repository import CardRepository
 from app.database.repositories.price_repository import PriceRepository
+from app.database.repositories.settings_repository import SettingsRepository
 from app.i18n import tr
 from app.logging_config import get_logger
 from app.models.card import Card
@@ -65,6 +66,7 @@ from app.pricing.browser_price_reader import (
     supports_language_filter,
 )
 from app.pricing.models import CardmarketOffer
+from app.pricing.seller_location import resolve_seller_country_id
 from app.services.exceptions import CardNotFoundError
 from app.utils.time import utc_now_iso
 
@@ -72,13 +74,17 @@ logger = get_logger(__name__)
 
 _SOURCE = "cardmarket"
 _CURRENCY = "EUR"
-#: A deliberately *noticeable* pause before opening the one alternate-
-#: version tab (see ``_try_alternate_version``) -- this project previously
-#: triggered a temporary Cardmarket account lockout by opening up to 6
-#: candidate tabs back-to-back with no delay at all (see PROJECT_PROGRESS.md,
-#: "Verworfener Versuch"). Never make this instant, and never try more than
-#: one alternate.
-_VERSION_SWITCH_DELAY_SECONDS = 3.0
+#: A deliberately *noticeable* pause before every single Cardmarket tab this
+#: class opens -- not just the one alternate-version tab (see
+#: ``_try_alternate_version``) this was originally scoped to. This project
+#: previously triggered a temporary Cardmarket account lockout by opening up
+#: to 6 candidate tabs back-to-back with no delay at all (see
+#: PROJECT_PROGRESS.md, "Verworfener Versuch"). Live-reproduced (worse) once
+#: the seller-location ladder below could open up to ten tabs in one lookup
+#: with no delay between any of them -- every read in this class now goes
+#: through :meth:`PriceService._read_offers`, which always sleeps first.
+#: Never make this instant.
+_REQUEST_DELAY_SECONDS = 3.0
 
 _PriceResult = tuple[float | None, PriceQuality, str]
 
@@ -196,7 +202,8 @@ class PriceService:
         designation_lookup: Callable[
             [str, Language], LocalizedDesignation | None
         ] = find_localized_designation,
-        version_switch_delay: float = _VERSION_SWITCH_DELAY_SECONDS,
+        request_delay: float = _REQUEST_DELAY_SECONDS,
+        settings_repository: SettingsRepository | None = None,
     ) -> None:
         self._cards = card_repository
         self._prices = price_repository
@@ -204,7 +211,11 @@ class PriceService:
         self._offer_reader = offer_reader
         self._resolve_url = url_resolver
         self._designation_lookup = designation_lookup
-        self._version_switch_delay = version_switch_delay
+        self._request_delay = request_delay
+        # None (the default -- e.g. most tests) resolves to "no seller-
+        # location filter", same as the setting being off; see
+        # app.pricing.seller_location.
+        self._settings = settings_repository
 
     def update_price_for_card(self, card_id: int) -> Card:
         """Look up and persist the current Cardmarket price for a card.
@@ -338,19 +349,144 @@ class PriceService:
         offers, so retrying with a different filter wouldn't help. An empty
         (but successfully read) offer list, by contrast, just means "try the
         next, looser tier".
+
+        If the global seller-location preference (see
+        ``app.pricing.seller_location``) is set, the ladder below is
+        preceded by two extra, narrower attempts instead of running once,
+        unfiltered by seller location:
+
+        1. Preferred country, exact match only (same language, exact condition).
+        2. All countries, exact match only.
+        3. The full ladder below (condition +-1, English fallback, ...),
+           unfiltered by seller location.
+
+        Each phase only runs if the previous one came back ``NO_PRICE`` --
+        e.g. an exact match in the preferred country (phase 1) is returned
+        immediately, without ever trying phase 2 or 3. Off (the default),
+        this wrapping is skipped entirely and the ladder runs exactly as
+        before, with no seller-location filter at all.
+
+        Deliberately *not* a fourth phase repeating the full ladder a second
+        time filtered by seller location (an earlier version of this did) --
+        live-reported: that could open up to ten Cardmarket tabs for one
+        lookup, and this project already has one confirmed incident of a
+        temporary account lockout from opening *six* tabs back-to-back (see
+        ``_REQUEST_DELAY_SECONDS``). The preferred-country exact check above
+        already covers the common case; every read past that point (via
+        :meth:`_read_offers`) always pauses first regardless.
         """
+        extras = self._extras(card)
+        seller_country_id = resolve_seller_country_id(self._settings)
+        if seller_country_id is None:
+            return self._run_ladder(card, base_url, extras, seller_country=None)
+
+        exact = self._check_exact_native(card, base_url, extras, seller_country_id)
+        if exact is not None:
+            return self._with_seller_location_note(exact, filtered=True)
+
+        exact = self._check_exact_native(card, base_url, extras, None)
+        if exact is not None:
+            return self._with_seller_location_note(exact, filtered=False)
+
+        result = self._run_ladder(card, base_url, extras, seller_country=None)
+        return self._with_seller_location_note(result, filtered=False)
+
+    @staticmethod
+    def _with_seller_location_note(result: _PriceResult, filtered: bool) -> _PriceResult:
+        """Appends a short note saying whether this specific price came from
+
+        a search restricted to the preferred seller country, or one that
+        fell through to all of Europe -- live-requested: with the "Only
+        sellers from Germany" setting on, a shown price could silently be
+        from *any* country once the exact-match-in-Germany phase came back
+        empty, with no visible way to tell the two cases apart. Only called
+        when the setting is actually on (see ``determine_price``) -- when
+        it's off, every price is unfiltered by definition, and a note
+        saying so on every single card would just be noise.
+        """
+        price, quality, rationale = result
+        note = tr("Verkäuferstandort: Deutschland.") if filtered else tr("Verkäuferstandort: alle Länder.")
+        combined = f"{rationale} {note}" if rationale else note
+        return price, quality, combined
+
+    @staticmethod
+    def _extras(card: Card) -> dict[str, bool]:
         # Extras are a hard requirement, not a loosenable ladder step: a
         # signed (or reverse holo) card must never be priced against
-        # unsigned/non-reverse offers, so every tier below filters by these,
-        # even the "fully unfiltered" last one -- that one is only
+        # unsigned/non-reverse offers, so every ladder tier filters by
+        # these, even the "fully unfiltered" last one -- that one is only
         # unfiltered with respect to language/condition.
-        extras = {
+        return {
             "signed": card.is_signed,
             "first_edition": card.is_first_edition,
             "altered": card.is_altered,
             "reverse_holo": card.is_reverse_holo,
         }
 
+    def _read_offers(self, url: str, match_hint: str) -> list[CardmarketOffer]:
+        """Every ``offer_reader`` call in this class's ladder goes through
+
+        here -- see ``_REQUEST_DELAY_SECONDS``'s own docstring for why the
+        pause before each one is mandatory, not just for the alternate-
+        version tab this used to be scoped to. Exceptions are intentionally
+        left to propagate -- callers each already decide for themselves
+        whether a raise here means "abort" or "try the next tier" (see
+        :meth:`_check_exact_native` vs. :meth:`_run_ladder`'s own docs).
+        """
+        time.sleep(self._request_delay)
+        return self._offer_reader(url, match_hint)
+
+    def _check_exact_native(
+        self, card: Card, base_url: str, extras: dict[str, bool], seller_country: int | None
+    ) -> _PriceResult | None:
+        """Tier-1-only check (native language, exact condition) -- the
+
+        "exact match" half of the seller-location ladder in
+        :meth:`determine_price`'s own docstring. Only ever returns an
+        ``EXACT``-quality result or ``None``; a same-language +-1 nearby
+        match found on this same fetch is deliberately discarded here --
+        that belongs to the "full ladder" half (see :meth:`_run_ladder`),
+        run only once the exact check has failed in both the preferred
+        country and across all countries.
+
+        ``BrowserPriceReaderError`` is caught here, not left to propagate
+        (unlike every read inside :meth:`_run_ladder`) -- live-reported: a
+        sellerCountry-filtered page legitimately having zero matching
+        offers ("Due to your filter settings, no available offers are
+        shown.") is the *expected*, common case for a narrow single-country
+        filter, not a browser/read failure. ``read_offers_for_card`` itself
+        can't tell the two apart and raises either way (see its own
+        docstring) -- but here, unlike the unwrapped ladder, retrying with a
+        broader filter (the next seller-location phase) is exactly the
+        right response to a raise, so it must not abort the whole lookup.
+        """
+        language_filtered = supports_language_filter(card.language)
+        url = build_filtered_url(
+            base_url,
+            language=card.language if language_filtered else None,
+            min_condition=card.condition,
+            seller_country=seller_country,
+            **extras,
+        )
+        try:
+            offers = self._read_offers(url, card.name)
+        except BrowserPriceReaderError:
+            return None
+        result = _price_for_language(card, offers, card.language, is_native_language=True)
+        if result is not None and result[1] is PriceQuality.EXACT:
+            return result
+        return None
+
+    def _run_ladder(
+        self, card: Card, base_url: str, extras: dict[str, bool], seller_country: int | None
+    ) -> tuple[float | None, PriceQuality, str]:
+        """The original, unwrapped matching ladder -- see :meth:`determine_price`'s
+
+        own docstring for how the seller-location preference (if any) wraps
+        multiple calls to this around it. ``seller_country=None`` and no
+        seller-location preference set at all behave identically: no
+        ``sellerCountry`` filter on any of the URLs built below.
+        """
         # Tier 1+2: same language, exact condition then +-1 (never more).
         # Two reads, not one: at-or-better is server-filtered together with
         # language where Cardmarket supports it -- a live smoke test found
@@ -367,10 +503,11 @@ class PriceService:
             base_url,
             language=card.language if language_filtered else None,
             min_condition=card.condition,
+            seller_country=seller_country,
             **extras,
         )
         try:
-            offers = self._offer_reader(at_or_better_url, card.name)
+            offers = self._read_offers(at_or_better_url, card.name)
         except BrowserPriceReaderError as exc:
             return None, PriceQuality.NO_PRICE, str(exc)
 
@@ -379,10 +516,13 @@ class PriceService:
             return result
 
         same_language_url = build_filtered_url(
-            base_url, language=card.language if language_filtered else None, **extras
+            base_url,
+            language=card.language if language_filtered else None,
+            seller_country=seller_country,
+            **extras,
         )
         try:
-            offers = self._offer_reader(same_language_url, card.name)
+            offers = self._read_offers(same_language_url, card.name)
         except BrowserPriceReaderError as exc:
             return None, PriceQuality.NO_PRICE, str(exc)
 
@@ -399,7 +539,7 @@ class PriceService:
         # not just "no stock right now" -- worth one, and only one,
         # alternate-version tab before falling through to the English tier.
         if language_filtered and not offers:
-            alt_result = self._try_alternate_version(card, base_url, extras)
+            alt_result = self._try_alternate_version(card, base_url, extras, seller_country)
             if alt_result is not None:
                 return alt_result
 
@@ -415,10 +555,14 @@ class PriceService:
             card.language
         ):
             english_at_or_better_url = build_filtered_url(
-                base_url, language=Language.ENGLISH, min_condition=card.condition, **extras
+                base_url,
+                language=Language.ENGLISH,
+                min_condition=card.condition,
+                seller_country=seller_country,
+                **extras,
             )
             try:
-                offers = self._offer_reader(english_at_or_better_url, card.name)
+                offers = self._read_offers(english_at_or_better_url, card.name)
             except BrowserPriceReaderError as exc:
                 return None, PriceQuality.NO_PRICE, str(exc)
 
@@ -427,10 +571,10 @@ class PriceService:
                 return result
 
             english_any_condition_url = build_filtered_url(
-                base_url, language=Language.ENGLISH, **extras
+                base_url, language=Language.ENGLISH, seller_country=seller_country, **extras
             )
             try:
-                offers = self._offer_reader(english_any_condition_url, card.name)
+                offers = self._read_offers(english_any_condition_url, card.name)
             except BrowserPriceReaderError as exc:
                 return None, PriceQuality.NO_PRICE, str(exc)
 
@@ -457,38 +601,46 @@ class PriceService:
         return None, PriceQuality.NO_PRICE, tr("Keine Angebote auf Cardmarket gefunden.")
 
     def _try_alternate_version(
-        self, card: Card, base_url: str, extras: dict[str, bool]
+        self,
+        card: Card,
+        base_url: str,
+        extras: dict[str, bool],
+        seller_country: int | None = None,
     ) -> _PriceResult | None:
         """One, and only one, sibling-version Cardmarket tab -- see the
 
-        ``_VERSION_SWITCH_DELAY_SECONDS`` module docstring for why this
-        must never become a candidate loop. A read failure here is silently
-        treated as "no offers on the alternate either", not an error --
-        this is an extra, best-effort attempt, and the ladder must still
-        fall through to the ordinary any-language steps if it doesn't pan
-        out. On success, the corrected URL is persisted back to the card
-        (mirroring the existing shortlink-resolution self-correction) so
-        every future lookup goes straight to the right product.
+        ``_REQUEST_DELAY_SECONDS`` module docstring for why this must never
+        become a candidate loop. A read failure here is silently treated as
+        "no offers on the alternate either", not an error -- this is an
+        extra, best-effort attempt, and the ladder must still fall through
+        to the ordinary any-language steps if it doesn't pan out. On
+        success, the corrected URL is persisted back to the card (mirroring
+        the existing shortlink-resolution self-correction) so every future
+        lookup goes straight to the right product.
         """
         alternate_url = find_alternate_version_url(base_url)
         if alternate_url is None:
             return None
 
-        time.sleep(self._version_switch_delay)
-
         at_or_better_url = build_filtered_url(
-            alternate_url, language=card.language, min_condition=card.condition, **extras
+            alternate_url,
+            language=card.language,
+            min_condition=card.condition,
+            seller_country=seller_country,
+            **extras,
         )
         try:
-            offers = self._offer_reader(at_or_better_url, card.name)
+            offers = self._read_offers(at_or_better_url, card.name)
         except BrowserPriceReaderError:
             offers = []
         result = _price_for_language(card, offers, card.language, is_native_language=True)
 
         if result is None:
-            same_language_url = build_filtered_url(alternate_url, language=card.language, **extras)
+            same_language_url = build_filtered_url(
+                alternate_url, language=card.language, seller_country=seller_country, **extras
+            )
             try:
-                offers = self._offer_reader(same_language_url, card.name)
+                offers = self._read_offers(same_language_url, card.name)
             except BrowserPriceReaderError:
                 offers = []
             result = _price_for_language(card, offers, card.language, is_native_language=True)

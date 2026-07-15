@@ -43,6 +43,7 @@ from app.services.statistics_service import (
 )
 from app.ui.set_icon_provider import get_set_icon
 from app.ui.theme import PALETTE, apply_elevation
+from app.utils.formatting import format_decimal
 from app.utils.time import format_display_datetime
 
 #: Wide enough for the "Preis aktualisieren" button's bold, padded label to
@@ -81,7 +82,7 @@ class _NumericItem(QTableWidgetItem):
 
 
 def _value_text(value: float) -> str:
-    return f"{value:.2f} EUR"
+    return f"{format_decimal(value)} EUR"
 
 
 def _formatted_as_of(as_of: str | None) -> str:
@@ -477,7 +478,7 @@ class StatisticsPanel(QWidget):
             QToolTip.hideText()
             return
         when = QDateTime.fromMSecsSinceEpoch(int(point.x())).toString("dd.MM.yyyy")
-        QToolTip.showText(QCursor.pos(), f"{when}\n{point.y():.2f} EUR")
+        QToolTip.showText(QCursor.pos(), f"{when}\n{format_decimal(point.y())} EUR")
 
     def _on_stale_header_clicked(self, column: int) -> None:
         if column == 3:  # Aktion -- a button, nothing to sort by
@@ -708,6 +709,7 @@ class StatisticsPanel(QWidget):
             )
             return
         self._price_increase_label.setText(
-            f"{highlight.card.name}: {highlight.previous_price:.2f} EUR → "
-            f"{highlight.latest_price:.2f} EUR (+{highlight.percent_change:.1f} %)"
+            f"{highlight.card.name}: {format_decimal(highlight.previous_price)} EUR → "
+            f"{format_decimal(highlight.latest_price)} EUR "
+            f"(+{format_decimal(highlight.percent_change, 1)} %)"
         )

@@ -85,7 +85,7 @@ def test_successful_lookup_refreshes_and_shows_price(main_window) -> None:
 
     assert service.calls == [1]
     assert wantlist_controller.refresh_calls == 1
-    assert "450.00" in main_window.statusBar().currentMessage()
+    assert "450,00" in main_window.statusBar().currentMessage()
 
 
 def test_below_target_price_is_flagged_in_the_status_message(main_window) -> None:

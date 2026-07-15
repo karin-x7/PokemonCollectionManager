@@ -5,8 +5,9 @@ from __future__ import annotations
 import pytest
 
 from app.database.connection import Database
+from app.database.repositories.sealed_price_repository import SealedPriceRepository
 from app.database.repositories.sealed_product_repository import SealedProductRepository
-from app.models.enums import Language
+from app.models.enums import Language, PriceQuality
 from app.models.sealed_product import SealedProductDetailsValues, SealedProductFilter
 from app.services.exceptions import SealedProductNotFoundError, ValidationError
 from app.services.sealed_product_service import SealedProductService
@@ -139,3 +140,41 @@ def test_remove_product_deletes_it(service: SealedProductService) -> None:
 def test_remove_product_raises_when_missing(service: SealedProductService) -> None:
     with pytest.raises(SealedProductNotFoundError):
         service.remove_product(999)
+
+
+def test_set_manual_price_persists_price_and_quality(service: SealedProductService) -> None:
+    product = service.add_product_manual("Base Set Booster Box", "Booster Box", _values())
+
+    updated = service.set_manual_price(product.id, 42.5)
+
+    assert updated.current_price == 42.5
+    assert updated.price_currency == "EUR"
+    assert updated.price_quality is PriceQuality.MANUAL
+    assert updated.price_updated_at is not None
+
+
+def test_set_manual_price_missing_product_raises_not_found(service: SealedProductService) -> None:
+    with pytest.raises(SealedProductNotFoundError):
+        service.set_manual_price(999, 10.0)
+
+
+def test_set_manual_price_rejects_zero_or_negative(service: SealedProductService) -> None:
+    product = service.add_product_manual("Base Set Booster Box", "Booster Box", _values())
+
+    with pytest.raises(ValidationError):
+        service.set_manual_price(product.id, 0)
+    with pytest.raises(ValidationError):
+        service.set_manual_price(product.id, -5.0)
+
+
+def test_set_manual_price_adds_a_price_history_record(temp_db: Database) -> None:
+    price_repository = SealedPriceRepository(temp_db)
+    service = SealedProductService(SealedProductRepository(temp_db), price_repository)
+    product = service.add_product_manual("Base Set Booster Box", "Booster Box", _values())
+
+    service.set_manual_price(product.id, 99.0)
+
+    records = price_repository.list_for_product(product.id)
+    assert len(records) == 1
+    assert records[0].price == 99.0
+    assert records[0].price_quality is PriceQuality.MANUAL

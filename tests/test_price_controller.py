@@ -95,7 +95,7 @@ def test_successful_lookup_refreshes_card_controller_and_shows_price(
 
     assert service.calls == [1]
     assert card_controller.refresh_calls == 1
-    assert "13.90" in main_window.statusBar().currentMessage()
+    assert "13,90" in main_window.statusBar().currentMessage()
 
 
 def test_lookup_with_no_price_found_still_refreshes(main_window: MainWindow) -> None:

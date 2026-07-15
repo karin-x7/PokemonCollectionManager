@@ -10,7 +10,9 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QAbstractItemView, QMessageBox, QTableWidgetSelectionRange
+from unittest.mock import MagicMock
+
+from PySide6.QtWidgets import QAbstractItemView, QDialog, QMessageBox, QTableWidgetSelectionRange
 
 from app.models.enums import Language
 from app.models.sealed_product import SealedProduct
@@ -101,7 +103,7 @@ def test_total_price_column_is_price_times_quantity(panel: SealedProductListPane
         [_product(id=1, name="Box", current_price=10.0, quantity=3, price_updated_at=fresh)]
     )
 
-    assert panel._table.item(0, 5).text() == "30.00 EUR"  # Gesamtpreis
+    assert panel._table.item(0, 5).text() == "30,00 EUR"  # Gesamtpreis
 
 
 def test_total_price_column_shows_dash_without_a_price(panel: SealedProductListPanel) -> None:
@@ -186,3 +188,42 @@ def test_single_select_delete_confirmed_emits_one_id(
     panel._prompt_delete_selected()
 
     assert received == [[2]]
+
+
+def test_prompt_edit_price_confirmed_emits_id_and_price(
+    monkeypatch, panel: SealedProductListPanel
+) -> None:
+    dialog = MagicMock()
+    dialog.exec.return_value = QDialog.DialogCode.Accepted
+    dialog.get_price.return_value = 199.99
+    captured_kwargs = {}
+
+    def fake_dialog(**kwargs):
+        captured_kwargs.update(kwargs)
+        return dialog
+
+    monkeypatch.setattr("app.ui.widgets.sealed_product_list_panel.ManualPriceDialog", fake_dialog)
+    received: list[tuple[int, float]] = []
+    panel.price_edit_requested.connect(lambda pid, price: received.append((pid, price)))
+
+    panel._prompt_edit_price(1)  # Charizard Box, id=2
+
+    assert received == [(2, 199.99)]
+    assert "current_price" in captured_kwargs
+
+
+def test_prompt_edit_price_cancelled_emits_nothing(
+    monkeypatch, panel: SealedProductListPanel
+) -> None:
+    dialog = MagicMock()
+    dialog.exec.return_value = QDialog.DialogCode.Rejected
+    monkeypatch.setattr(
+        "app.ui.widgets.sealed_product_list_panel.ManualPriceDialog", lambda **kwargs: dialog
+    )
+
+    received = []
+    panel.price_edit_requested.connect(lambda *a: received.append(a))
+
+    panel._prompt_edit_price(0)
+
+    assert received == []

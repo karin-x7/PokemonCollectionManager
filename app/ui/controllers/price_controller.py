@@ -34,6 +34,7 @@ from app.ui.widgets.card_detail_panel import CardDetailPanel
 from app.ui.widgets.card_list_panel import CardListPanel
 from app.ui.workers.open_cardmarket_link_worker import OpenCardmarketLinkWorker
 from app.ui.workers.price_lookup_worker import OpenPriceService, PriceLookupWorker
+from app.utils.formatting import format_decimal
 
 logger = get_logger(__name__)
 
@@ -132,7 +133,7 @@ class PriceController(QObject):
     def _on_succeeded(self, card: Card) -> None:
         message = (
             tr("Preis für „{name}“ aktualisiert: {price} {currency}").format(
-                name=card.name, price=f"{card.current_price:.2f}", currency=card.price_currency
+                name=card.name, price=format_decimal(card.current_price), currency=card.price_currency
             )
             if card.current_price is not None
             else tr("Kein Preis für „{name}“ gefunden.").format(name=card.name)

@@ -9,10 +9,13 @@ from app.database.connection import Database
 from app.database.repositories.card_repository import CardRepository
 from app.database.repositories.collection_repository import CollectionRepository
 from app.database.repositories.price_repository import PriceRepository
+from app.database.repositories.settings_repository import SettingsRepository
 from app.models.card import Card
 from app.models.enums import Condition, Language, PriceQuality
 from app.pricing.browser_price_reader import BrowserPriceReaderError, build_filtered_url
+from app.pricing.cardmarket_parsing import SELLER_COUNTRY_GERMANY_ID
 from app.pricing.models import CardmarketOffer
+from app.pricing.seller_location import set_germany_only_enabled
 from app.services.exceptions import CardNotFoundError
 from app.services.price_service import PriceService
 
@@ -84,7 +87,8 @@ def _service(
     pokemontcg=None,
     url_resolver=None,
     designation_lookup=None,
-    version_switch_delay: float = 0,
+    request_delay: float = 0,
+    settings_repository=None,
 ) -> PriceService:
     return PriceService(
         CardRepository(temp_db),
@@ -98,7 +102,8 @@ def _service(
         designation_lookup=designation_lookup or (lambda external_id, language: None),
         # No real delay by default -- these tests must run fast; the real,
         # deliberately noticeable pause is exercised/verified separately.
-        version_switch_delay=version_switch_delay,
+        request_delay=request_delay,
+        settings_repository=settings_repository,
     )
 
 
@@ -261,7 +266,7 @@ def test_alternate_version_is_tried_when_language_has_zero_offers_at_all(
         CardmarketOffer(seller="a", condition=Condition.GOOD, language=Language.GERMAN, price=250.0)
     ]
     reader = FakeOfferReader([], [], [], alt_offers)
-    service = _service(temp_db, reader, version_switch_delay=0)
+    service = _service(temp_db, reader, request_delay=0)
 
     updated = service.update_price_for_card(card.id)
 
@@ -352,14 +357,17 @@ def test_alternate_version_failing_too_falls_through_to_the_english_tier(
     assert updated.cardmarket_url == _VINTAGE_URL
 
 
-def test_alternate_version_switch_applies_a_deliberate_delay(
+def test_every_ladder_read_applies_a_deliberate_delay(
     temp_db: Database, collection_id: int, monkeypatch
 ) -> None:
     """This exact kind of candidate-guessing previously triggered a real
 
     Cardmarket account lockout (see PROJECT_PROGRESS.md) because it opened
     several tabs with *no* delay at all -- the fix must always pause first,
-    never fire the alternate tab instantly.
+    before every single Cardmarket tab this class opens, not just the
+    alternate-version one this was originally scoped to (live-reproduced,
+    worse, once the seller-location ladder could open up to ten tabs in one
+    lookup with no delay between any of them).
     """
     import app.services.price_service as price_service_module
 
@@ -367,14 +375,16 @@ def test_alternate_version_switch_applies_a_deliberate_delay(
         temp_db, collection_id, language=Language.GERMAN, condition=Condition.GOOD,
         cardmarket_url=_VINTAGE_URL,
     )
-    reader = FakeOfferReader([], [], [], [])
+    # Empty at every tier -- at-or-better, same-language, alternate-version
+    # (x2), English at-or-better, English any-condition -- six reads total.
+    reader = FakeOfferReader([], [], [], [], [], [])
     sleep_calls = []
     monkeypatch.setattr(price_service_module.time, "sleep", sleep_calls.append)
-    service = _service(temp_db, reader, version_switch_delay=3.0)
+    service = _service(temp_db, reader, request_delay=3.0)
 
     service.update_price_for_card(card.id)
 
-    assert sleep_calls == [3.0]
+    assert sleep_calls == [3.0] * 6
 
 
 def test_estimated_from_language_picks_english_when_no_native_language_stock(
@@ -763,3 +773,192 @@ def test_price_history_record_is_written_on_success(
     assert len(history) == 1
     assert history[0].price == 12.5
     assert history[0].source == "cardmarket"
+
+
+# --- Seller-location preference (Germany-only) ----------------------------- #
+
+
+def _germany_only_settings(temp_db: Database) -> SettingsRepository:
+    settings = SettingsRepository(temp_db)
+    set_germany_only_enabled(settings, True)
+    return settings
+
+
+def test_seller_location_off_by_default_builds_no_country_filter(
+    temp_db: Database, collection_id: int
+) -> None:
+    card = _card(temp_db, collection_id, language=Language.GERMAN, condition=Condition.GOOD)
+    offers = [
+        CardmarketOffer(seller="a", condition=Condition.GOOD, language=Language.GERMAN, price=12.5)
+    ]
+    reader = FakeOfferReader(offers)
+    # No settings_repository at all (the default) -- same as the setting
+    # being off.
+    service = _service(temp_db, reader)
+
+    service.update_price_for_card(card.id)
+
+    assert "sellerCountry" not in reader.calls[0][0]
+
+
+def test_seller_location_exact_match_in_preferred_country_returns_immediately(
+    temp_db: Database, collection_id: int
+) -> None:
+    card = _card(temp_db, collection_id, language=Language.GERMAN, condition=Condition.GOOD)
+    offers = [
+        CardmarketOffer(seller="a", condition=Condition.GOOD, language=Language.GERMAN, price=12.5)
+    ]
+    reader = FakeOfferReader(offers)
+    service = _service(temp_db, reader, settings_repository=_germany_only_settings(temp_db))
+
+    price, quality, _ = service.determine_price(card, card.cardmarket_url)
+
+    assert price == 12.5
+    assert quality is PriceQuality.EXACT
+    assert len(reader.calls) == 1
+    assert f"sellerCountry={SELLER_COUNTRY_GERMANY_ID}" in reader.calls[0][0]
+
+
+def test_seller_location_falls_back_to_exact_match_across_all_countries(
+    temp_db: Database, collection_id: int
+) -> None:
+    card = _card(temp_db, collection_id, language=Language.GERMAN, condition=Condition.GOOD)
+    offers = [
+        CardmarketOffer(seller="a", condition=Condition.GOOD, language=Language.GERMAN, price=9.0)
+    ]
+    # First call (preferred country): no exact match. Second call (all
+    # countries): exact match.
+    reader = FakeOfferReader([], offers)
+    service = _service(temp_db, reader, settings_repository=_germany_only_settings(temp_db))
+
+    price, quality, _ = service.determine_price(card, card.cardmarket_url)
+
+    assert price == 9.0
+    assert quality is PriceQuality.EXACT
+    assert len(reader.calls) == 2
+    assert f"sellerCountry={SELLER_COUNTRY_GERMANY_ID}" in reader.calls[0][0]
+    assert "sellerCountry" not in reader.calls[1][0]
+
+
+def test_seller_location_falls_back_to_the_buffer_ladder_unfiltered_by_country(
+    temp_db: Database, collection_id: int
+) -> None:
+    # Deliberately *not* a country-filtered buffer phase (an earlier version
+    # had one) -- see determine_price's own docstring: needlessly more
+    # Cardmarket tabs for one lookup, live-reported to have triggered a
+    # Cloudflare block. An English card skips the (irrelevant here)
+    # English-fallback tier entirely, so the buffer pass is exactly two
+    # reads (at-or-better, then condition-unfiltered).
+    card = _card(
+        temp_db, collection_id, language=Language.ENGLISH, condition=Condition.NEAR_MINT
+    )
+    buffer_offer = CardmarketOffer(
+        seller="a", condition=Condition.EXCELLENT, language=Language.ENGLISH, price=20.0
+    )
+    reader = FakeOfferReader(
+        [],  # phase 1: exact, preferred country
+        [],  # phase 2: exact, all countries
+        [],  # phase 3: buffer, at-or-better (unfiltered by country)
+        [buffer_offer],  # phase 3: buffer, condition-unfiltered
+    )
+    service = _service(temp_db, reader, settings_repository=_germany_only_settings(temp_db))
+
+    price, quality, _ = service.determine_price(card, card.cardmarket_url)
+
+    assert price == 20.0
+    assert quality is PriceQuality.ESTIMATED_FROM_CONDITION
+    assert len(reader.calls) == 4
+    assert f"sellerCountry={SELLER_COUNTRY_GERMANY_ID}" in reader.calls[0][0]
+    assert "sellerCountry" not in reader.calls[1][0]
+    assert "sellerCountry" not in reader.calls[2][0]
+    assert "sellerCountry" not in reader.calls[3][0]
+
+
+def test_seller_location_note_says_germany_when_the_exact_country_match_wins(
+    temp_db: Database, collection_id: int
+) -> None:
+    card = _card(temp_db, collection_id, language=Language.GERMAN, condition=Condition.GOOD)
+    offers = [
+        CardmarketOffer(seller="a", condition=Condition.GOOD, language=Language.GERMAN, price=12.5)
+    ]
+    reader = FakeOfferReader(offers)
+    service = _service(temp_db, reader, settings_repository=_germany_only_settings(temp_db))
+
+    _, _, rationale = service.determine_price(card, card.cardmarket_url)
+
+    assert rationale.endswith("Seller location: Germany.")
+
+
+def test_seller_location_note_says_all_countries_when_falling_back(
+    temp_db: Database, collection_id: int
+) -> None:
+    card = _card(temp_db, collection_id, language=Language.GERMAN, condition=Condition.GOOD)
+    offers = [
+        CardmarketOffer(seller="a", condition=Condition.GOOD, language=Language.GERMAN, price=9.0)
+    ]
+    reader = FakeOfferReader([], offers)
+    service = _service(temp_db, reader, settings_repository=_germany_only_settings(temp_db))
+
+    _, _, rationale = service.determine_price(card, card.cardmarket_url)
+
+    assert rationale.endswith("Seller location: all countries.")
+
+
+def test_seller_location_note_absent_when_the_setting_is_off(
+    temp_db: Database, collection_id: int
+) -> None:
+    card = _card(temp_db, collection_id, language=Language.GERMAN, condition=Condition.GOOD)
+    offers = [
+        CardmarketOffer(seller="a", condition=Condition.GOOD, language=Language.GERMAN, price=12.5)
+    ]
+    reader = FakeOfferReader(offers)
+    service = _service(temp_db, reader)
+
+    _, _, rationale = service.determine_price(card, card.cardmarket_url)
+
+    assert "Seller location:" not in rationale
+
+
+def test_seller_location_no_price_anywhere_still_yields_no_price(
+    temp_db: Database, collection_id: int
+) -> None:
+    card = _card(
+        temp_db, collection_id, language=Language.ENGLISH, condition=Condition.NEAR_MINT
+    )
+    reader = FakeOfferReader([], [], [], [])
+    service = _service(temp_db, reader, settings_repository=_germany_only_settings(temp_db))
+
+    price, quality, _ = service.determine_price(card, card.cardmarket_url)
+
+    assert price is None
+    assert quality is PriceQuality.NO_PRICE
+    assert len(reader.calls) == 4
+
+
+def test_seller_location_a_raised_zero_offers_error_still_falls_through_to_the_next_phase(
+    temp_db: Database, collection_id: int
+) -> None:
+    # Live-reported regression: the *real* offer reader
+    # (read_offers_for_card) raises BrowserPriceReaderError, not an empty
+    # list, when a filtered page genuinely has zero matching offers (see its
+    # own docstring) -- Cardmarket itself said "Due to your filter
+    # settings, no available offers are shown." for a sellerCountry=7 page
+    # that loaded perfectly fine. Before this fix, that raise propagated
+    # straight out of _check_exact_native and aborted the whole lookup
+    # after a single read instead of trying the next, broader phase.
+    card = _card(temp_db, collection_id, language=Language.GERMAN, condition=Condition.GOOD)
+    offers = [
+        CardmarketOffer(seller="a", condition=Condition.GOOD, language=Language.GERMAN, price=9.0)
+    ]
+    reader = FakeOfferReader(
+        BrowserPriceReaderError("Keine Angebote auf der Cardmarket-Seite erkannt."), offers
+    )
+    service = _service(temp_db, reader, settings_repository=_germany_only_settings(temp_db))
+
+    price, quality, _ = service.determine_price(card, card.cardmarket_url)
+
+    assert price == 9.0
+    assert quality is PriceQuality.EXACT
+    assert len(reader.calls) == 2
+    assert f"sellerCountry={SELLER_COUNTRY_GERMANY_ID}" in reader.calls[0][0]
+    assert "sellerCountry" not in reader.calls[1][0]

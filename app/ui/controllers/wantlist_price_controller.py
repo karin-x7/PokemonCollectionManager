@@ -23,6 +23,7 @@ from app.ui.workers.wantlist_price_lookup_worker import (
     OpenWantlistPriceService,
     WantlistPriceLookupWorker,
 )
+from app.utils.formatting import format_price
 
 logger = get_logger(__name__)
 
@@ -98,7 +99,10 @@ class WantlistPriceController(QObject):
     def _on_succeeded(self, item: WantlistItem) -> None:
         if item.current_price is not None:
             alert = "  Below target!" if item.is_below_target else ""
-            message = f'Price for "{item.name}" checked: {item.current_price:.2f} {item.price_currency}{alert}'
+            message = (
+                f'Price for "{item.name}" checked: '
+                f"{format_price(item.current_price, item.price_currency)}{alert}"
+            )
         else:
             message = f'No price found for "{item.name}".'
         if not self._bulk_total:

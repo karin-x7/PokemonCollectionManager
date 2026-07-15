@@ -32,7 +32,7 @@ import time
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from app import config
 from app.i18n import tr
@@ -40,6 +40,7 @@ from app.logging_config import get_logger
 from app.pricing.cardmarket_parsing import (
     BrowserPriceReaderError,
     _find_breadcrumb_set_name,
+    _has_bot_check,
     _has_cookie_banner,
     _parse_offer_lines,
     _parse_product_info,
@@ -55,7 +56,28 @@ from app.pricing.models import CardmarketOffer, CardmarketSearchResult, ProductI
 
 logger = get_logger(__name__)
 
-_DEFAULT_TIMEOUT = 30.0
+#: How long to wait for a *new* Chrome window/tab to appear with "Cardmarket"
+#: in its title at all -- a separate, earlier deadline from
+#: _BOT_CHECK_SETTLE_DELAY below, which only ever runs *after* a window has
+#: already been found. Live-reported (a tester whose setup reproduces this
+#: reliably, unrelated to ad blockers -- confirmed by comparison against a
+#: working setup that also runs one): "Cardmarket tab ... was not found in
+#: time" even though Chrome does open and does navigate. The likely cause:
+#: Cardmarket's own Cloudflare interstitial (see _has_bot_check) keeps a
+#: non-Cardmarket title (e.g. "Just a moment...") until its automatic
+#: verification finishes and it redirects to the real page -- on a slower
+#: connection this can plausibly take longer than the original 30s allowed
+#: for altogether, well before the window is even found, let alone read.
+#: Bumped once already (30s -> 60s) on the same hypothesis; a fresh log from
+#: that same tester confirmed 60s still wasn't always enough (repeated "not
+#: found in time" failures, each followed shortly after by a manual retry
+#: that *did* succeed -- consistent with a slow *cold* Chrome launch rather
+#: than anything wrong with the page itself: once Chrome is already running
+#: from the failed attempt, the retry is fast). Bumped further to 90s.
+#: ``is_cold_start``/the "cold"/"warm" log lines below were added alongside
+#: this so a future log shows the actual elapsed wait instead of requiring
+#: another guess.
+_DEFAULT_TIMEOUT = 90.0
 _POLL_INTERVAL = 0.5
 #: Extra time to let the page finish rendering once the window/title appears.
 _SETTLE_DELAY = 2.0
@@ -66,6 +88,15 @@ _SETTLE_DELAY = 2.0
 #: instead of the usual several dozen. If a first capture looks that thin,
 #: it's given one more settle delay and re-read before giving up on it.
 _MIN_EXPECTED_LINES = 30
+#: Cloudflare's own "Checking your Browser…" interstitial (see
+#: _has_bot_check's own docstring) easily clears _MIN_EXPECTED_LINES on its
+#: own chrome/branding alone, so it needs its own, longer patience rather
+#: than being accepted as a normal fully-rendered page: its automatic JS
+#: verification live-confirmed to still be running well past a single
+#: _SETTLE_DELAY. Tried a few times rather than once, since one wait was
+#: still live-confirmed insufficient on a slower connection.
+_BOT_CHECK_SETTLE_DELAY = 5.0
+_MAX_BOT_CHECK_ATTEMPTS = 3
 
 #: Common install locations, checked if the registry lookup (see
 #: ``_find_chrome_executable``) doesn't turn up a usable path.
@@ -142,6 +173,20 @@ def _chrome_window_titles() -> dict[int, str]:
 
     win32gui.EnumWindows(_collect, None)
     return titles
+
+
+def _url_slug(url: str) -> str:
+    """The last non-empty path segment of ``url``, casefolded.
+
+    A distinctive-enough fragment of the target product page to spot inside
+    a Chrome window's own visible address-bar text (e.g. "Jolteon-GX-
+    Collection" out of ".../Box-Sets/Jolteon-GX-Collection?language=1") --
+    see the fallback match in ``_open_and_capture_visible_text``'s own
+    docstring for why this is needed alongside the primary "title changed
+    since the snapshot" heuristic.
+    """
+    segments = [segment for segment in urlsplit(url).path.split("/") if segment]
+    return segments[-1].casefold() if segments else ""
 
 
 def _restore_foreground(hwnd: int | None) -> None:
@@ -353,6 +398,21 @@ def _open_and_capture_visible_text(
     once caught a broad "any window mentioning Cardmarket" search matching
     a stale, already-open tab from an earlier lookup instead of the tab
     this call just opened, silently returning a real but wrong price.
+
+    A window whose title *didn't* change is not simply discarded, though --
+    live-reported: looking up a card while a tab for that *same* card was
+    already open (e.g. left over from an earlier, timed-out attempt) failed
+    with "not found in time" even though the right page was sitting right
+    there the whole time. Chrome can reuse/refresh that existing window
+    instead of opening a visibly distinct new one, so its title is already
+    "<Name> | Cardmarket" *before* this call even starts and never
+    "changes" from the snapshot's point of view. For an unchanged title,
+    this falls back to checking the window's own visible text for the
+    target URL's slug (e.g. "Jolteon-GX-Collection") -- present in the
+    browser's own address bar line -- before accepting it. This keeps the
+    original stale-tab protection (an unrelated Cardmarket window's address
+    bar won't contain *this* URL's slug) while also covering the
+    same-card-already-open case the plain title diff missed.
     ``match_hint`` (the card's name) is used only for the error message if
     no matching window ever appears, *not* for the matching itself: a real
     card ("Charizard VMAX" filtered by German) showed a live "Cardmarket-Tab
@@ -373,22 +433,43 @@ def _open_and_capture_visible_text(
 
     own_hwnd = win32gui.GetForegroundWindow()
     titles_before = _chrome_window_titles()
-    _open_in_chrome(url, cold_start=not titles_before)
+    is_cold_start = not titles_before
+    _open_in_chrome(url, cold_start=is_cold_start)
 
     desktop = Desktop(backend="uia")
-    deadline = time.monotonic() + timeout
+    start = time.monotonic()
+    deadline = start + timeout
+    logger.info(
+        "Waiting up to %.0fs for a Cardmarket tab for %r (%s Chrome start)...",
+        timeout, match_hint, "cold" if is_cold_start else "warm",
+    )
+    target_slug = _url_slug(url)
     window = None
     while time.monotonic() < deadline:
         for hwnd, title in _chrome_window_titles().items():
             if "cardmarket" not in title.casefold():
                 continue
-            if titles_before.get(hwnd) == title:
+            title_changed = titles_before.get(hwnd) != title
+            if not title_changed and not target_slug:
                 continue  # unchanged since the snapshot -- a stale tab, not ours
             try:
                 candidate = desktop.window(handle=hwnd)
                 candidate.window_text()  # sanity check it's wrappable
             except Exception:  # noqa: BLE001 — window may have closed mid-poll
                 continue
+            if not title_changed:
+                # Unchanged title -- fall back to an address-bar text check
+                # (see this function's own docstring) before accepting it,
+                # to still tell "same card already open" apart from "an
+                # unrelated, stale Cardmarket tab".
+                try:
+                    matches_target = any(
+                        target_slug in line.casefold() for line in _read_visible_text(candidate)
+                    )
+                except Exception:  # noqa: BLE001 — window may have closed mid-poll
+                    matches_target = False
+                if not matches_target:
+                    continue
             window = candidate
             break
         if window is not None:
@@ -398,6 +479,10 @@ def _open_and_capture_visible_text(
     _restore_foreground(own_hwnd)
 
     if window is None:
+        logger.warning(
+            "No Cardmarket tab appeared for %r after %.1fs (%s Chrome start, timeout was %.0fs).",
+            match_hint, time.monotonic() - start, "cold" if is_cold_start else "warm", timeout,
+        )
         raise BrowserPriceReaderError(
             tr("Cardmarket-Tab für „{hint}“ wurde nicht rechtzeitig gefunden.").format(
                 hint=match_hint
@@ -428,6 +513,20 @@ def _open_and_capture_visible_text(
             )
             time.sleep(_SETTLE_DELAY)
             _dismiss_cookie_banner(window)
+            lines = _read_visible_text(window)
+        bot_check_attempt = 0
+        while _has_bot_check(lines) and bot_check_attempt < _MAX_BOT_CHECK_ATTEMPTS:
+            bot_check_attempt += 1
+            # Purely passive waiting for Cardmarket's own automatic
+            # verification to finish on its own -- never clicks, solves, or
+            # otherwise interacts with the check itself.
+            logger.info(
+                "Cardmarket's own bot-check page is still showing for %r "
+                "(attempt %d/%d) -- waiting longer for it to clear before "
+                "reading again.",
+                match_hint, bot_check_attempt, _MAX_BOT_CHECK_ATTEMPTS,
+            )
+            time.sleep(_BOT_CHECK_SETTLE_DELAY)
             lines = _read_visible_text(window)
         if on_window_ready is not None:
             try:

@@ -19,7 +19,7 @@ text:
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from app.i18n import tr
@@ -40,6 +40,14 @@ logger = get_logger(__name__)
 
 class CardmarketSearchController(QObject):
     """Starts the "Cardmarket-Link suchen" flow from the card detail panel."""
+
+    #: Emitted with the card's id right after its Cardmarket link is
+    #: successfully saved -- :class:`~app.ui.main_window.MainWindow` connects
+    #: this to :meth:`~app.ui.controllers.price_controller.PriceController.
+    #: start_lookup`, mirroring :attr:`~app.ui.controllers.card_controller.
+    #: CardController.card_added`: fixing the link and fetching its price
+    #: should be one step, not two.
+    link_saved = Signal(int)
 
     def __init__(
         self,
@@ -133,6 +141,20 @@ class CardmarketSearchController(QObject):
     def _on_resolve_succeeded(self, url: str) -> None:
         if self._card_id is None or self._card_name is None:
             return
+        # Captured into locals *before* the blocking QMessageBox below --
+        # live-reported bug: confirming the dialog silently did nothing.
+        # Root cause: QMessageBox.question() runs its own nested Qt event
+        # loop while it waits for the user, and the worker's own `finished`
+        # signal (queued right behind `succeeded`, since the thread emits
+        # it immediately after returning from run()) gets processed during
+        # that wait -- which resets self._card_id/self._card_name to None
+        # via _cleanup_resolve *before* the user ever clicks anything. By
+        # the time "Yes" was clicked, self._card_id was already None, so
+        # set_manual_cardmarket_url(None, url) failed with a "card not
+        # found" error that only ever reached the status bar, never the
+        # log -- indistinguishable from "nothing happened".
+        card_id = self._card_id
+        card_name = self._card_name
         # One last explicit confirmation before actually saving/overwriting
         # the card's Cardmarket link -- live-reported request: everything
         # up to here (picking a candidate) only confirms *which product* to
@@ -141,19 +163,20 @@ class CardmarketSearchController(QObject):
             self._main_window,
             tr("Cardmarket-Link suchen"),
             tr("Diesen Link für „{name}“ speichern?\n{url}").format(
-                name=self._card_name, url=url
+                name=card_name, url=url
             ),
         )
         if answer != QMessageBox.StandardButton.Yes:
             self._main_window.statusBar().showMessage(tr("Cardmarket-Link nicht übernommen."), 5000)
             return
         try:
-            self._service.set_manual_cardmarket_url(self._card_id, url)
+            self._service.set_manual_cardmarket_url(card_id, url)
         except ServiceError as exc:
             self._main_window.statusBar().showMessage(str(exc), 5000)
             return
         self._main_window.statusBar().showMessage(tr("Cardmarket-Link gespeichert."), 5000)
         self._card_controller.refresh()
+        self.link_saved.emit(card_id)
 
     def _on_resolve_failed(self, message: str) -> None:
         self._main_window.statusBar().showMessage(message, 5000)

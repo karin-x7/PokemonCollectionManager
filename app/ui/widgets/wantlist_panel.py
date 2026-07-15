@@ -33,6 +33,7 @@ from app.ui.dialogs.wantlist_item_details_dialog import WantlistItemDetailsDialo
 from app.ui.language_icon_provider import get_language_icon
 from app.ui.theme import PALETTE, apply_elevation
 from app.ui.widgets.centered_icon_delegate import CenteredIconDelegate
+from app.utils.formatting import format_price
 
 _COLUMNS = ["Name", "Set", "Lang.", "Target", "Current", "Status"]
 _ID_ROLE = Qt.ItemDataRole.UserRole
@@ -60,7 +61,7 @@ class _NumericItem(QTableWidgetItem):
 def _current_price_text(item: WantlistItem) -> str:
     if item.current_price is None:
         return "—"
-    return f"{item.current_price:.2f} {item.price_currency}"
+    return format_price(item.current_price, item.price_currency)
 
 
 def _current_price_sort_value(item: WantlistItem) -> float:
@@ -162,7 +163,7 @@ class WantlistPanel(QWidget):
                 item.name,
                 item.set_name or "—",
                 item.language.code,
-                f"{item.target_price:.2f} {item.price_currency}",
+                format_price(item.target_price, item.price_currency),
                 _current_price_text(item),
                 _status_text(item),
             ]

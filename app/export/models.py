@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.utils.formatting import format_decimal
+
 #: Column headers, in export order — shared by every writer so the columns
 #: line up the same way regardless of format.
 COLUMNS = (
@@ -53,7 +55,7 @@ class ExportRow:
 
         ``None``/empty fields normalised to ``""`` — the one shared
         representation every writer builds its own output from."""
-        price_text = f"{self.price:.2f}" if self.price is not None else ""
+        price_text = format_decimal(self.price) if self.price is not None else ""
         return (
             self.collection_name,
             self.name,
@@ -107,7 +109,7 @@ class SealedExportRow:
 
     def as_tuple(self) -> tuple[str, str, str, int, str, str, str, str, str, str]:
         """Values in :data:`SEALED_COLUMNS` order -- mirrors ``ExportRow.as_tuple()``."""
-        price_text = f"{self.price:.2f}" if self.price is not None else ""
+        price_text = format_decimal(self.price) if self.price is not None else ""
         return (
             self.name,
             self.category,

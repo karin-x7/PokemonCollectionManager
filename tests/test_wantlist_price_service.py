@@ -57,6 +57,9 @@ def _service(temp_db: Database, offer_reader) -> WantlistPriceService:
         PriceRepository(temp_db),
         PokemonTcgClient(),
         offer_reader=offer_reader,
+        # No real delay -- these tests must run fast; the real, deliberately
+        # noticeable pause is exercised/verified separately (test_price_service.py).
+        request_delay=0,
     )
     return WantlistPriceService(WantlistRepository(temp_db), pricing)
 

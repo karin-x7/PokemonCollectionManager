@@ -127,6 +127,9 @@ _EN: dict[str, str] = {
     "Keine Cardmarket-Zuordnung für diese Karte bekannt -- Link kann nicht geöffnet werden.": (
         "No Cardmarket link known for this card -- nothing to open."
     ),
+    "Keine Cardmarket-Zuordnung für dieses Produkt bekannt -- Link kann nicht geöffnet werden.": (
+        "No Cardmarket link known for this product -- nothing to open."
+    ),
     "Cardmarket-Seite geöffnet.": "Cardmarket page opened.",
     "Ein anderer Cardmarket-Vorgang läuft gerade -- bitte kurz warten.": (
         "Another Cardmarket operation is already running -- please wait a moment."
@@ -347,6 +350,11 @@ _EN: dict[str, str] = {
         'Possible Cardmarket designation (via tcgdex.dev): "{card_name}", '
         'set "{set_name}", no. {local_id}.'
     ),
+    # Seller-location note appended to the rationale, shared by
+    # price_service.py and sealed_price_service.py -- only shown when the
+    # "Only sellers from Germany" setting is on.
+    "Verkäuferstandort: Deutschland.": "Seller location: Germany.",
+    "Verkäuferstandort: alle Länder.": "Seller location: all countries.",
     # sealed_price_service.py
     "Keine Cardmarket-Zuordnung für dieses Produkt bekannt.": (
         "No Cardmarket link known for this product."

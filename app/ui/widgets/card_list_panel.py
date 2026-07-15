@@ -49,6 +49,7 @@ from app.ui.set_icon_provider import get_set_icon
 from app.ui.theme import PALETTE
 from app.ui.widgets.card_filter_bar import CardFilterBar
 from app.ui.widgets.centered_icon_delegate import CenteredIconDelegate
+from app.utils.formatting import format_price
 
 
 def _columns() -> list[str]:
@@ -124,7 +125,7 @@ class _NumericItem(QTableWidgetItem):
 def _price_text(card: Card) -> str:
     if card.current_price is None:
         return "—"
-    price = f"{card.current_price:.2f} {card.price_currency}"
+    price = format_price(card.current_price, card.price_currency)
     # A warning emoji, not just "!" -- reuses the exact same threshold as
     # the Statistiken tab's "Karten mit veraltetem Preis" list, one
     # definition of "stale", not two.

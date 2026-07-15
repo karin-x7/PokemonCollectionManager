@@ -14,20 +14,26 @@ from dataclasses import replace
 from pathlib import Path
 
 from app import config
+from app.database.repositories.sealed_price_repository import SealedPriceRepository
 from app.database.repositories.sealed_product_repository import SealedProductRepository
 from app.i18n import tr
 from app.logging_config import get_logger
-from app.models.enums import Language
+from app.models.enums import Language, PriceQuality
+from app.models.sealed_price import SealedPriceRecord
 from app.models.sealed_product import SealedProduct, SealedProductDetailsValues, SealedProductFilter
 from app.pricing.browser_price_reader import (
     build_sealed_filtered_url,
     sealed_supports_language_filter,
 )
 from app.services.exceptions import SealedProductNotFoundError, ValidationError
+from app.utils.time import utc_now_iso
 
 logger = get_logger(__name__)
 
 _MIN_QUANTITY = 1
+#: Mirrors card_service.py's own manual-price constants.
+_MANUAL_PRICE_CURRENCY = "EUR"
+_MANUAL_PRICE_SOURCE = "manual"
 
 
 def _validate_quantity(quantity: int) -> None:
@@ -37,6 +43,11 @@ def _validate_quantity(quantity: int) -> None:
                 min_quantity=_MIN_QUANTITY
             )
         )
+
+
+def _validate_price(price: float) -> None:
+    if price <= 0:
+        raise ValidationError(tr("Der Preis muss größer als 0 sein."))
 
 
 def _with_language_filter(url: str | None, language: Language) -> str | None:
@@ -80,8 +91,13 @@ def _finalize_photo(product_id: int, temp_photo_path: str | None) -> str | None:
 class SealedProductService:
     """Orchestrates sealed product CRUD with validation and friendly errors."""
 
-    def __init__(self, repository: SealedProductRepository) -> None:
+    def __init__(
+        self,
+        repository: SealedProductRepository,
+        price_repository: SealedPriceRepository | None = None,
+    ) -> None:
         self._repo = repository
+        self._prices = price_repository
 
     def search_products(self, product_filter: SealedProductFilter) -> list[SealedProduct]:
         """Return sealed products matching every set criterion in ``product_filter``."""
@@ -157,3 +173,39 @@ class SealedProductService:
         self.get_product(product_id)  # raises SealedProductNotFoundError
         self._repo.delete(product_id)
         logger.info("Sealed product removed: id=%s", product_id)
+
+    def set_manual_price(self, product_id: int, price: float) -> SealedProduct:
+        """Overrides a sealed product's price with a user-supplied value.
+
+        Mirrors ``CardService.set_manual_price`` -- see its own docstring
+        for why this exists.
+
+        Raises:
+            SealedProductNotFoundError: If the product does not exist.
+            ValidationError: If ``price`` isn't a positive number.
+        """
+        self.get_product(product_id)  # raises SealedProductNotFoundError
+        _validate_price(price)
+        now = utc_now_iso()
+        self._repo.update_price(
+            product_id,
+            price,
+            _MANUAL_PRICE_CURRENCY,
+            PriceQuality.MANUAL,
+            tr("Manuell eingetragen"),
+            now,
+        )
+        if self._prices is not None:
+            self._prices.add_record(
+                SealedPriceRecord(
+                    id=None,
+                    sealed_product_id=product_id,
+                    price=price,
+                    currency=_MANUAL_PRICE_CURRENCY,
+                    price_quality=PriceQuality.MANUAL,
+                    rationale=tr("Manuell eingetragen"),
+                    source=_MANUAL_PRICE_SOURCE,
+                )
+            )
+        logger.info("Manual price set: sealed product id=%s price=%s", product_id, price)
+        return self.get_product(product_id)

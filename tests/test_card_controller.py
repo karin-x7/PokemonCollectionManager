@@ -94,6 +94,23 @@ def test_add_confirmed_persists_and_refreshes_panel(
     assert _names(controller) == ["Xatu"]
 
 
+def test_add_confirmed_emits_card_added_for_immediate_price_lookup(
+    controller: CardController, collection_id: int
+) -> None:
+    # Live-reported (tester feedback): adding a card and fetching its price
+    # were two separate steps, the second one easy to forget -- MainWindow
+    # wires this signal straight to PriceController.start_lookup so they
+    # now happen in one go.
+    controller.set_collection(collection_id)
+    received: list[int] = []
+    controller.card_added.connect(received.append)
+
+    controller._panel.add_confirmed.emit(_CATALOG_CARD, _VALUES)
+
+    card_id = controller._panel.selected_card_id()
+    assert received == [card_id]
+
+
 def test_prompt_add_manual_no_collection_selected_shows_error(
     monkeypatch, controller: CardController
 ) -> None:
@@ -119,6 +136,21 @@ def test_manual_add_confirmed_persists_and_refreshes_panel(
     )
 
     assert _names(controller) == ["Venusaur"]
+
+
+def test_manual_add_confirmed_emits_card_added_for_immediate_price_lookup(
+    controller: CardController, collection_id: int
+) -> None:
+    controller.set_collection(collection_id)
+    received: list[int] = []
+    controller.card_added.connect(received.append)
+
+    controller._panel.manual_add_confirmed.emit(
+        "Venusaur", "Legendary Collection", "18", _VALUES, None, ""
+    )
+
+    card_id = controller._panel.selected_card_id()
+    assert received == [card_id]
 
 
 def test_manual_add_confirmed_finalizes_a_captured_photo(

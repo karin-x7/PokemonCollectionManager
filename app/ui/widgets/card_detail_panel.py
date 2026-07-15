@@ -33,6 +33,7 @@ from app.models.card import Card
 from app.ui.set_icon_provider import get_set_icon
 from app.ui.theme import apply_elevation
 from app.ui.widgets.card_artwork_view import CardArtworkView
+from app.utils.formatting import format_price
 from app.utils.time import format_display_datetime
 
 #: Internal field identifiers -- also used as ``self._value_labels`` keys and
@@ -200,7 +201,7 @@ class CardDetailPanel(QWidget):
         self._cardmarket_search_button.setEnabled(True)
         self._artwork.show_photo(card.photo_path, card.is_reverse_holo)
         price = (
-            f"{card.current_price:.2f} {card.price_currency}"
+            format_price(card.current_price, card.price_currency)
             if card.current_price is not None
             else "—"
         )

@@ -243,9 +243,20 @@ class PokemonTcgClient:
         name: str | None = None,
         set_id: str | None = None,
         number: str | None = None,
-        page_size: int = 25,
+        page_size: int = 250,
     ) -> list[CatalogCard]:
         """Search the catalogue by any combination of name/set/number.
+
+        ``page_size`` defaults to pokemontcg.io's own max (250, matching
+        ``list_sets()``'s own call) -- live-confirmed a plain single-word
+        name search (e.g. "charizard") can have well over 100 total matches
+        (108, live-checked) spread across every set that Pokemon has ever
+        printed it in, in no particular (definitely not relevance-sorted)
+        order. The previous default of 25 silently dropped real matches
+        that just didn't happen to be near the front of that order --
+        live-reported: "Charizard ex" from a specific, more recent set only
+        turned up once the query was narrowed enough (adding "ex") to fit
+        the surviving matches under 25.
 
         Raises:
             PokemonTcgClientError: On a network error or non-2xx response.

@@ -97,7 +97,7 @@ def test_edit_requested_persists_changes(controller: WantlistController) -> None
     controller._panel.edit_requested.emit(item_id, new_values)
 
     table = controller._panel._table
-    assert "300.00" in table.item(0, 3).text()  # Target column
+    assert "300,00" in table.item(0, 3).text()  # Target column
 
 
 def test_delete_requested_removes_item(controller: WantlistController) -> None:

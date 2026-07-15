@@ -35,10 +35,12 @@ from PySide6.QtWidgets import (
 from app.i18n import tr
 from app.models.sealed_product import SealedProduct, SealedProductDetailsValues
 from app.services.statistics_service import is_price_stale
+from app.ui.dialogs.manual_price_dialog import ManualPriceDialog
 from app.ui.dialogs.sealed_product_details_dialog import SealedProductDetailsDialog
 from app.ui.language_icon_provider import get_language_icon
 from app.ui.theme import PALETTE, apply_elevation
 from app.ui.widgets.centered_icon_delegate import CenteredIconDelegate
+from app.utils.formatting import format_price
 
 
 def _columns() -> list[str]:
@@ -82,7 +84,7 @@ class _NumericItem(QTableWidgetItem):
 def _price_text(product: SealedProduct) -> str:
     if product.current_price is None:
         return "—"
-    price = f"{product.current_price:.2f} {product.price_currency}"
+    price = format_price(product.current_price, product.price_currency)
     return f"{price}  ⚠️" if is_price_stale(product) else price
 
 
@@ -95,7 +97,7 @@ def _price_sort_value(product: SealedProduct) -> float:
 def _total_price_text(product: SealedProduct) -> str:
     if product.total_value is None:
         return "—"
-    total = f"{product.total_value:.2f} {product.price_currency}"
+    total = format_price(product.total_value, product.price_currency)
     return f"{total}  ⚠️" if is_price_stale(product) else total
 
 
@@ -117,6 +119,15 @@ class SealedProductListPanel(QWidget):
     edit_requested = Signal(int, object)
     #: Emitted with product_id when "Preis aktualisieren" is chosen.
     price_lookup_requested = Signal(int)
+    #: Emitted with (product_id, new price) once the user confirms a manual
+    #: override -- mirrors CardListPanel's own price_edit_requested.
+    price_edit_requested = Signal(int, float)
+    #: Emitted with a product id when "Open Cardmarket link" is chosen from
+    #: the context menu -- mirrors CardListPanel's own
+    #: open_cardmarket_link_requested: only offered for a single selected
+    #: row, distinct from "Preis aktualisieren" (which reads and closes the
+    #: tab automatically), this leaves the tab open for the user to browse.
+    open_cardmarket_link_requested = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -271,6 +282,18 @@ class SealedProductListPanel(QWidget):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.edit_requested.emit(product_id, dialog.get_values())
 
+    def _prompt_edit_price(self, row: int) -> None:
+        item = self._table.item(row, 0)
+        if item is None:
+            return
+        product_id = item.data(_ID_ROLE)
+        product = self._products_by_id.get(product_id)
+        if product is None:
+            return
+        dialog = ManualPriceDialog(current_price=product.current_price, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.price_edit_requested.emit(product_id, dialog.get_price())
+
     def _prompt_delete_selected(self) -> None:
         ids = self.selected_product_ids()
         if not ids:
@@ -311,11 +334,21 @@ class SealedProductListPanel(QWidget):
         menu = QMenu(self)
         edit_action = menu.addAction(tr("Bearbeiten")) if len(ids) == 1 else None
         price_action = menu.addAction(tr("Preis aktualisieren")) if len(ids) == 1 else None
+        price_edit_action = (
+            menu.addAction(tr("Preis manuell bearbeiten")) if len(ids) == 1 else None
+        )
+        open_link_action = (
+            menu.addAction(tr("Cardmarket-Link öffnen")) if len(ids) == 1 else None
+        )
         delete_action = menu.addAction(tr("Löschen"))
         chosen = menu.exec(self._table.viewport().mapToGlobal(position))
         if edit_action is not None and chosen is edit_action:
             self._prompt_edit(row)
         elif price_action is not None and chosen is price_action:
             self.price_lookup_requested.emit(ids[0])
+        elif price_edit_action is not None and chosen is price_edit_action:
+            self._prompt_edit_price(row)
+        elif open_link_action is not None and chosen is open_link_action:
+            self.open_cardmarket_link_requested.emit(ids[0])
         elif chosen is delete_action:
             self._prompt_delete_selected()

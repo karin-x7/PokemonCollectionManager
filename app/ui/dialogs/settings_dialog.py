@@ -97,6 +97,7 @@ _HELP_INDEX: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
             ("general-export-import", "Export &amp; Import"),
             ("general-backups", "Backups"),
             ("general-update-notifications", "Update notifications"),
+            ("general-settings", "Seller location and number format"),
         ),
     ),
 )
@@ -333,6 +334,15 @@ be restarted afterward to show the restored data.</p>
 <p>On startup, the app checks GitHub in the background for a newer release.
 If one exists, a link appears in the status bar — nothing is downloaded or
 installed automatically.</p>
+
+<a name="general-settings"></a>
+<h3 {_HELP_SECTION_STYLE}>Seller location and number format</h3>
+<p>The <b>Settings</b> tab (in the toolbar, next to Import) lets you turn on
+<b>"Only sellers from Germany"</b> to prefer German sellers for automatic
+price lookups — cards, sealed products, and the wantlist all use it. If no
+German offer is found, it falls back to sellers from anywhere in Europe;
+more locations are planned. Prices throughout the app are shown in European
+format (e.g. 1.234,00 instead of 1234.00).</p>
 """
 )
 
@@ -425,6 +435,14 @@ price</a> in Help.</i></p>
 most once every 24 hours. Use "Restore from backup…" in the Info tab to
 roll back to an earlier one.</p>
 <p><i>See also: <a href="help:#general-backups">Backups</a> in Help.</i></p>
+
+<h3 {_FAQ_QUESTION_STYLE}>Can I limit prices to sellers from Germany?</h3>
+<p>Yes — turn on <b>"Only sellers from Germany"</b> in the <b>Settings</b>
+tab. It applies to automatic price lookups for cards, sealed products, and
+the wantlist, and falls back to all of Europe if no German offer is
+found.</p>
+<p><i>See also: <a href="help:#general-settings">Seller location and number
+format</a> in Help.</i></p>
 
 <h3 {_FAQ_QUESTION_STYLE}>Does the app run on Mac or Linux?</h3>
 <p>Not currently — it's Windows-only for now.</p>

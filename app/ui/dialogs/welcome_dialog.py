@@ -29,6 +29,8 @@ app keeps their current Cardmarket price up to date for you — matched to the
 exact language and condition you own. Sealed products and a wantlist with
 price alerts work the same way.</p>
 
+<p>Check the <b>Settings</b> tab to prefer sellers from Germany for pricing.</p>
+
 <p>Not sure where to start? Check <b>Help</b> (top right) any time for a full
 walkthrough — searching, pricing, sealed products, and more.</p>
 """

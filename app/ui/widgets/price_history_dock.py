@@ -29,6 +29,7 @@ from app.i18n import tr
 from app.models.card import Card
 from app.models.price import PriceRecord
 from app.ui.theme import PALETTE
+from app.utils.formatting import format_decimal, format_price
 
 #: How many of the most recent price updates to list below the chart.
 _MAX_HISTORY_ROWS = 10
@@ -115,7 +116,7 @@ class PriceHistoryDock(QDockWidget):
             self._percent_label.hide()
             self._placeholder.setText(
                 tr("Nur ein Preis bisher: {price} {currency}").format(
-                    price=f"{records[0].price:.2f}", currency=records[0].currency
+                    price=format_decimal(records[0].price), currency=records[0].currency
                 )
                 if records
                 else tr("Noch kein Preisverlauf vorhanden.")
@@ -196,7 +197,7 @@ class PriceHistoryDock(QDockWidget):
             QToolTip.hideText()
             return
         when = QDateTime.fromMSecsSinceEpoch(int(point.x())).toString("dd.MM.yyyy")
-        QToolTip.showText(QCursor.pos(), f"{when}\n{point.y():.2f} EUR")
+        QToolTip.showText(QCursor.pos(), f"{when}\n{format_decimal(point.y())} EUR")
 
     def _render_percent_change(self, records: list[PriceRecord]) -> None:
         previous, latest = records[-2].price, records[-1].price
@@ -207,7 +208,7 @@ class PriceHistoryDock(QDockWidget):
         sign = "+" if change >= 0 else "−"
         self._percent_label.setText(
             tr("{sign}{value} % ggü. letzter Aktualisierung").format(
-                sign=sign, value=f"{abs(change):.1f}"
+                sign=sign, value=format_decimal(abs(change), 1)
             )
         )
         self._percent_label.setObjectName("PercentPositive" if change >= 0 else "PercentNegative")
@@ -224,7 +225,7 @@ class PriceHistoryDock(QDockWidget):
             # Extra spacing between date and time -- a single plain space
             # made them look too tight together (user feedback).
             when = timestamp.toString("dd.MM.yy   HH:mm")
-            price_text = f"{record.price:.2f} {record.currency}"
+            price_text = format_price(record.price, record.currency)
             # Two/three lines instead of one long "·"-joined line: the
             # single-line form regularly overflowed the dock's width,
             # forcing a horizontal scrollbar just to read one entry. The
